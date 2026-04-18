@@ -1,0 +1,4 @@
+# Runtime: nenhuma dependencia externa (Python stdlib pura).
+#
+# Build-only (para gerar apresentador.exe):
+#   pip install pyinstaller

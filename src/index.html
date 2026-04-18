@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Modo Apresentador</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #f2f2f2;
+    color: #1a1a1a;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  body { display: flex; flex-direction: column; }
+
+  /* Área principal: ATUAL pequeno (esq) | PRÓXIMO grande (dir) */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 38fr 62fr;
+    gap: 20px;
+    padding: 20px;
+    min-height: 0;
+  }
+
+  .panel { display: flex; flex-direction: column; min-height: 0; }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .panel-header .badge {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 5px 14px;
+    border-radius: 3px;
+    color: white;
+  }
+  .panel-atual .badge { background: #e63946; }
+  .panel-proximo .badge { background: #f2b705; color: #1a1a1a; }
+
+  .slide-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  .slide-frame {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 100%;
+    background: #000;
+    border: 3px solid #222;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    position: relative;
+  }
+  .panel-atual .slide-frame { border-color: #e63946; }
+  .panel-proximo .slide-frame { border-color: #f2b705; }
+  .slide-frame img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .slide-frame .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+    font-size: 18px;
+    font-style: italic;
+    background: #000;
+  }
+
+  /* Rodapé: palestrante + contador + progresso */
+  .footer {
+    background: #ffffff;
+    border-top: 1px solid #d9d9d9;
+    padding: 14px 24px 18px;
+    flex-shrink: 0;
+  }
+  .footer-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .footer .palestrante {
+    font-size: 22px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+  .footer .contador {
+    font-size: 18px;
+    color: #555;
+    font-variant-numeric: tabular-nums;
+  }
+  .footer .contador strong { color: #1a1a1a; }
+
+  .progress {
+    height: 8px;
+    background: #e4e4e4;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #e63946 0%, #f2b705 100%);
+    border-radius: 4px;
+    transition: width 0.25s ease-out;
+    width: 0%;
+  }
+
+  /* Overlay de status (vMix offline, sem palestrante ativo, etc) */
+  .status-overlay {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    max-width: 360px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .status-overlay.show { opacity: 1; }
+  .status-overlay.erro { background: #b00020; }
+</style>
+</head>
+<body>
+
+<main>
+  <div class="panel panel-atual">
+    <div class="panel-header"><span class="badge">ATUAL</span></div>
+    <div class="slide-wrap">
+      <div class="slide-frame">
+        <img id="img-atual" alt="Slide atual" style="display:none">
+        <div class="placeholder" id="ph-atual">— aguardando —</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel panel-proximo">
+    <div class="panel-header"><span class="badge">PRÓXIMO</span></div>
+    <div class="slide-wrap">
+      <div class="slide-frame">
+        <img id="img-proximo" alt="Próximo slide" style="display:none">
+        <div class="placeholder" id="ph-proximo">— aguardando —</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="footer">
+  <div class="footer-top">
+    <div class="palestrante" id="footer-palestrante">—</div>
+    <div class="contador">Slide <strong id="footer-atual">—</strong> de <strong id="footer-total">—</strong></div>
+  </div>
+  <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+</div>
+
+<div class="status-overlay" id="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const imgAtual = $('img-atual');
+const imgProximo = $('img-proximo');
+const phAtual = $('ph-atual');
+const phProximo = $('ph-proximo');
+const footerPalestrante = $('footer-palestrante');
+const footerAtual = $('footer-atual');
+const footerTotal = $('footer-total');
+const progressFill = $('progress-fill');
+const statusEl = $('status');
+
+let lastAtualUrl = null;
+let lastProximoUrl = null;
+
+function showStatus(msg, erro = false) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('erro', erro);
+  statusEl.classList.add('show');
+}
+function hideStatus() {
+  statusEl.classList.remove('show');
+}
+
+function setImg(imgEl, phEl, url, phText = '—') {
+  if (url) {
+    if (imgEl.dataset.src !== url) {
+      imgEl.dataset.src = url;
+      imgEl.src = url;
+    }
+    imgEl.style.display = '';
+    phEl.style.display = 'none';
+  } else {
+    imgEl.removeAttribute('src');
+    imgEl.dataset.src = '';
+    imgEl.style.display = 'none';
+    phEl.textContent = phText;
+    phEl.style.display = '';
+  }
+}
+
+async function tick() {
+  try {
+    const r = await fetch('/state', { cache: 'no-store' });
+    const s = await r.json();
+
+    if (!s.ok) {
+      showStatus(s.erro || 'Erro desconhecido', true);
+      return;
+    }
+
+    if (!s.ativo) {
+      showStatus(s.mensagem || 'Aguardando palestrante...');
+      setImg(imgAtual, phAtual, null, '— sem slide ativo —');
+      setImg(imgProximo, phProximo, null, '— sem slide ativo —');
+      footerPalestrante.textContent = s.palestrante || '—';
+      footerAtual.textContent = '—';
+      footerTotal.textContent = '—';
+      progressFill.style.width = '0%';
+      return;
+    }
+
+    hideStatus();
+    setImg(imgAtual, phAtual, s.atual_url);
+    setImg(imgProximo, phProximo, s.proximo_url, '— fim da apresentação —');
+
+    footerPalestrante.textContent = s.palestrante;
+    footerAtual.textContent = String(s.indice);
+    footerTotal.textContent = String(s.total);
+    const pct = s.total > 1 ? ((s.indice - 1) / (s.total - 1)) * 100 : 0;
+    progressFill.style.width = pct + '%';
+  } catch (e) {
+    showStatus('Sem conexão com o servidor', true);
+  }
+}
+
+tick();
+setInterval(tick, 500);
+</script>
+
+</body>
+</html>
