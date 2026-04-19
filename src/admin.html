@@ -402,10 +402,11 @@
   }
   .modal .actions {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
     gap: 8px;
     margin-top: 18px;
   }
+  .modal .actions .spacer { flex: 1; }
 
   /* ---------- Live preview footer ---------- */
   .live-preview {
@@ -480,6 +481,66 @@
     border-color: #e63946;
     box-shadow: 0 0 0 1px #e6394644, 0 4px 20px rgba(230, 57, 70, 0.15);
   }
+
+  /* Badges de status por palestrante */
+  .status-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: #12141a;
+    font-size: 11px;
+  }
+  .status-badge {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .status-badge.status-ok { background: #14261a; color: #7dd87d; box-shadow: inset 0 0 0 1px #4caf5055; }
+  .status-badge.status-guid_orfao { background: #2a1f14; color: #f2b705; box-shadow: inset 0 0 0 1px #f2b70555; }
+  .status-badge.status-pasta_inacessivel,
+  .status-badge.status-sem_imagens,
+  .status-badge.status-filename_mismatch { background: #2a1414; color: #f28b82; box-shadow: inset 0 0 0 1px #f28b8255; }
+  .status-badge.status-vmix_offline { background: #20232a; color: #9aa0a6; box-shadow: inset 0 0 0 1px #3a3e4755; }
+  .status-badge.status-sem_pasta { background: #14202a; color: #8ab4f8; box-shadow: inset 0 0 0 1px #8ab4f855; }
+  .status-detail {
+    color: #9aa0a6;
+    font-size: 11px;
+    flex: 1;
+    word-break: break-word;
+    line-height: 1.3;
+  }
+
+  /* Diagnostico no modal */
+  .modal-diagnostic {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #12141a;
+    border: 1px solid #2a2e37;
+    border-radius: 6px;
+    font-size: 12px;
+    display: none;
+  }
+  .modal-diagnostic.show { display: block; }
+  .modal-diagnostic .diag-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .modal-diagnostic .diag-check.ok { color: #7dd87d; }
+  .modal-diagnostic .diag-check.fail { color: #f28b82; }
+  .modal-diagnostic .diag-check.warn { color: #f2b705; }
+  .modal-diagnostic .diag-check .icon { font-size: 14px; }
+  .modal-diagnostic .diag-check .msg { font-family: ui-monospace, monospace; font-size: 11px; }
   .filename-row .filename-val {
     font-size: 11px;
     color: #a6ddb1;
@@ -650,7 +711,7 @@
     color: #7a808a;
     font-family: ui-monospace, monospace;
   }
-  .tree-item.has-pngs .meta { color: #8ab4f8; }
+  .tree-item.has-imagens .meta { color: #8ab4f8; }
   .tree-empty {
     padding: 20px;
     text-align: center;
@@ -719,7 +780,7 @@
       <div class="hint">Preenchido automaticamente do input. Edite aqui ou clique no lápis do card depois.</div>
     </div>
 
-    <div class="modal-section-title">Pasta de PNGs</div>
+    <div class="modal-section-title">Pasta de imagens (PNG, JPG, JPEG, BMP, GIF, WEBP)</div>
 
     <div id="pasta-suggested" class="pasta-suggested empty"></div>
 
@@ -735,11 +796,15 @@
 
     <div class="field" style="margin-top:12px">
       <label>Caminho selecionado</label>
-      <input type="text" id="f-pasta" placeholder="clique em uma pasta acima ou digite o caminho">
+      <input type="text" id="f-pasta" placeholder="clique em uma pasta acima ou digite o caminho" oninput="agendarTestar()">
       <div class="hint">Aceita caminho absoluto ou relativo ao <code>config.json</code>. UNC (<code>\\servidor\share\...</code>) funciona.</div>
     </div>
 
+    <div class="modal-diagnostic" id="modal-diag"></div>
+
     <div class="actions">
+      <button class="btn" type="button" onclick="testarPalestrante()" title="Validar GUID + pasta + filename contra o vMix atual">🔍 testar</button>
+      <div class="spacer"></div>
       <button class="btn" type="button" onclick="closeModal()">Cancelar</button>
       <button class="btn primary" type="button" onclick="salvarPalestrante()">Salvar</button>
     </div>
@@ -779,6 +844,9 @@ let CONFIGURADOS = [];
 /* Estado live — atualizado a cada 500ms pelo fetch direto no vMix */
 const LIVE = { programNum: 0, programTitle: '', activeGuidMatch: null };
 
+/* Diagnostico de cada palestrante, indexado por GUID (vem de /admin/api/health) */
+const HEALTH_BY_GUID = {};
+
 /* File tree — alimentado pelos endpoints /admin/api/roots e /admin/api/ls
    Cache local por path p/ evitar reflush desnecessário */
 const TREE_CACHE = { roots: null, byPath: {} };
@@ -796,7 +864,11 @@ async function apiPost(path, body) {
     body: JSON.stringify(body),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok || data.ok === false) throw new Error(data.error || `HTTP ${r.status}`);
+  if (!r.ok || data.ok === false) {
+    const err = new Error(data.error || `HTTP ${r.status}`);
+    err.detalhes = data.erros || null;
+    throw err;
+  }
   return data;
 }
 
@@ -824,13 +896,13 @@ async function matchFolderByTokens(shortTitle) {
     let data;
     try { data = await fetchLs(path); } catch { return; }
     for (const item of data.items || []) {
-      if (item.pngs > 0) {
+      if (item.imagens > 0) {
         const candToks = tokens(item.name);
         const overlap = candToks.filter(t => target.has(t)).length;
         if (overlap > 0) {
           const score = overlap * 10 - Math.abs(candToks.length - target.size);
           if (!best || score > best.score) {
-            best = { path: item.path, pngs: item.pngs, score };
+            best = { path: item.path, imagens: item.imagens, score };
           }
         }
       } else if (item.subdirs > 0 && depth < 2) {
@@ -902,6 +974,28 @@ function liveInputInfo(guid) {
   return null;
 }
 
+const STATUS_META = {
+  ok:                 { icone: '✓',  label: 'OK' },
+  guid_orfao:         { icone: '⚠',  label: 'GUID órfão' },
+  pasta_inacessivel:  { icone: '✕',  label: 'Pasta inacessível' },
+  sem_imagens:        { icone: '✕',  label: 'Sem imagens' },
+  filename_mismatch:  { icone: '⚠',  label: 'Filename não bate' },
+  vmix_offline:       { icone: '⚠',  label: 'vMix offline' },
+  sem_pasta:          { icone: 'ⓘ',  label: 'Sem pasta' },
+};
+
+function renderStatusRow(guid) {
+  const h = HEALTH_BY_GUID[guid];
+  if (!h) return '';
+  const meta = STATUS_META[h.status] || { icone: '?', label: h.status };
+  return `
+    <div class="status-row">
+      <span class="status-badge status-${h.status}">${meta.icone} ${meta.label}</span>
+      <span class="status-detail">${escapeHtml(h.detalhe || '')}</span>
+    </div>
+  `;
+}
+
 function renderConfigurados() {
   const host = document.getElementById('cards-configurados');
   const cards = CONFIGURADOS.map((c, i) => {
@@ -917,7 +1011,7 @@ function renderConfigurados() {
         <div class="row filename-row"><span>Arquivo</span><span class="val filename-val" title="${escapeHtml(info.filename)}">${escapeHtml(info.filename) || '—'}</span></div>
         <div class="mini-bar"><div class="mini-fill" style="width:${info.total ? (info.idx/info.total)*100 : 0}%"></div></div>
       `
-      : `<div class="row"><span>Slides</span><span class="val">${c.slides} PNGs (último fetch)</span></div>`;
+      : `<div class="row"><span>Slides</span><span class="val">${c.slides} imagens (último fetch)</span></div>`;
 
     return `
       <div class="card ${live ? 'card-live' : ''}">
@@ -927,6 +1021,7 @@ function renderConfigurados() {
           <button class="edit-pencil" type="button" title="Editar nome" onclick="editarNome(${i})">✎</button>
           ${live ? '<span class="badge program">ao vivo</span>' : ''}
         </div>
+        ${renderStatusRow(c.guid)}
         <div class="row"><span>Input agora</span>${liveNum}</div>
         ${slidesInfo}
         <div class="row"><span>GUID</span><span class="val">${shortGuid(c.guid)}</span></div>
@@ -1124,15 +1219,18 @@ async function onInputChange(keepUserName = false) {
     host.innerHTML = `
       <span class="icon">📁</span>
       <div class="info">
-        <div class="lbl">Pasta sugerida (match por nome) — ${match.pngs} PNGs</div>
+        <div class="lbl">Pasta sugerida (match por nome) — ${match.imagens} imagens</div>
         <div class="path" title="${escapeHtml(match.path)}">${escapeHtml(match.path)}</div>
       </div>
       <button class="btn primary btn-sm" type="button" data-path="${escapeHtml(match.path)}" onclick="usarPasta(this.dataset.path)">usar</button>
     `;
   } else {
     host.className = 'pasta-suggested empty';
-    host.innerHTML = `Nenhuma pasta com PNGs encontrada para "<em>${escapeHtml(photo.shortTitle)}</em>". Navegue abaixo.`;
+    host.innerHTML = `Nenhuma pasta com imagens encontrada para "<em>${escapeHtml(photo.shortTitle)}</em>". Navegue abaixo.`;
   }
+
+  // dispara validate automaticamente
+  agendarTestar();
 }
 
 async function renderTree() {
@@ -1188,21 +1286,21 @@ async function renderTree() {
       return;
     }
     list.innerHTML = items.map(it => {
-      const hasPngs = it.pngs > 0;
+      const hasImagens = it.imagens > 0;
       const drillable = it.subdirs > 0;
       const metaBits = [];
-      if (hasPngs) metaBits.push(`${it.pngs} PNGs`);
+      if (hasImagens) metaBits.push(`${it.imagens} imagens`);
       if (drillable) metaBits.push(`${it.subdirs} subpastas`);
-      const inlineUse = hasPngs && drillable
+      const inlineUse = hasImagens && drillable
         ? `<button class="btn primary btn-sm tree-item-use" type="button" data-path="${escapeHtml(it.path)}" onclick="event.stopPropagation(); usarPasta(this.dataset.path)">usar</button>`
         : '';
       return `
-        <div class="tree-item ${hasPngs ? 'has-pngs' : ''}"
+        <div class="tree-item ${hasImagens ? 'has-imagens' : ''}"
              data-path="${escapeHtml(it.path)}"
              data-drillable="${drillable}"
-             data-haspngs="${hasPngs}"
+             data-hasimagens="${hasImagens}"
              onclick="treeItemClick(event, this)">
-          <span class="icon">${hasPngs ? '🖼️' : '📁'}</span>
+          <span class="icon">${hasImagens ? '🖼️' : '📁'}</span>
           <span class="name">${escapeHtml(it.name)}</span>
           <span class="meta">${metaBits.join(' · ') || '—'}</span>
           ${inlineUse}
@@ -1217,8 +1315,8 @@ async function renderTree() {
 function treeItemClick(ev, el) {
   const path = el.dataset.path;
   const drillable = el.dataset.drillable === 'true';
-  const hasPngs = el.dataset.haspngs === 'true';
-  if (hasPngs && !drillable) return usarPasta(path);
+  const hasImagens = el.dataset.hasimagens === 'true';
+  if (hasImagens && !drillable) return usarPasta(path);
   if (drillable) return treeGo(path);
   // sem nada pra fazer
 }
@@ -1260,6 +1358,80 @@ async function treeUp() {
 }
 function usarPasta(path) {
   document.getElementById('f-pasta').value = path;
+  agendarTestar();
+}
+
+/* ========================================================================
+   Botão "testar" — consulta /admin/api/validate com GUID + pasta do form
+   e renderiza check-list de diagnóstico. Também rodado em debounce 400ms
+   quando o usuário troca input ou cola/edita pasta.
+   ======================================================================== */
+let _testarTimer = null;
+function agendarTestar() {
+  clearTimeout(_testarTimer);
+  _testarTimer = setTimeout(testarPalestrante, 400);
+}
+
+async function testarPalestrante() {
+  const guid = document.getElementById('f-input').value;
+  const pasta = document.getElementById('f-pasta').value.trim();
+  const host = document.getElementById('modal-diag');
+  if (!guid) { host.classList.remove('show'); return; }
+
+  host.classList.add('show');
+  host.innerHTML = `<div class="diag-check"><span class="icon">⏳</span><span class="msg">validando...</span></div>`;
+
+  const qs = new URLSearchParams({ guid, pasta });
+  let d;
+  try {
+    d = await apiGet('validate?' + qs.toString());
+  } catch (e) {
+    host.innerHTML = `<div class="diag-check fail"><span class="icon">✕</span><span class="msg">erro: ${escapeHtml(e.message)}</span></div>`;
+    return;
+  }
+
+  const linhas = [];
+  // check 1: GUID
+  if (d.status === 'guid_orfao') {
+    linhas.push({ cls: 'fail', ico: '✕', msg: 'GUID não existe no vMix atual' });
+  } else {
+    linhas.push({
+      cls: 'ok', ico: '✓',
+      msg: `GUID existe no vMix: input #${padNum(d.num_input_atual)} "${d.shorttitle_atual || '—'}"`,
+    });
+  }
+  // check 2: pasta
+  if (d.status === 'sem_pasta') {
+    linhas.push({ cls: 'warn', ico: 'ⓘ', msg: 'Pasta não informada — preencha pra completar o teste' });
+  } else if (d.status === 'pasta_inacessivel') {
+    linhas.push({ cls: 'fail', ico: '✕', msg: `Pasta inacessível: ${d.detalhe}` });
+  } else if (d.status === 'guid_orfao') {
+    // nada — já reportado
+  } else {
+    linhas.push({
+      cls: 'ok', ico: '✓',
+      msg: `Pasta acessível (${d.total_na_pasta} imagens)`,
+    });
+  }
+  // check 3: filename
+  if (d.status === 'sem_imagens') {
+    linhas.push({ cls: 'fail', ico: '✕', msg: d.detalhe });
+  } else if (d.status === 'filename_mismatch') {
+    linhas.push({
+      cls: 'fail', ico: '✕',
+      msg: `Filename atual ("${d.title_atual}") não bate com nenhuma imagem da pasta`,
+    });
+  } else if (d.status === 'ok') {
+    linhas.push({ cls: 'ok', ico: '✓', msg: d.detalhe });
+  }
+  // status vmix offline
+  if (d.status === 'vmix_offline') {
+    linhas.push({ cls: 'fail', ico: '✕', msg: d.detalhe });
+  }
+
+  host.innerHTML = linhas.map(l =>
+    `<div class="diag-check ${l.cls}"><span class="icon">${l.ico}</span><span class="msg">${escapeHtml(l.msg)}</span></div>`
+  ).join('');
 }
 
 async function salvarPalestrante() {
@@ -1287,7 +1459,12 @@ async function salvarPalestrante() {
     closeModal();
     renderAll();
   } catch (e) {
-    alert('Erro salvando config: ' + e.message);
+    const host = document.getElementById('modal-diag');
+    host.classList.add('show');
+    const msg = e.detalhes && e.detalhes.length
+      ? e.detalhes.map(d => `<div class="diag-check fail"><span class="icon">✕</span><span class="msg">${escapeHtml(d)}</span></div>`).join('')
+      : `<div class="diag-check fail"><span class="icon">✕</span><span class="msg">${escapeHtml(e.message)}</span></div>`;
+    host.innerHTML = msg;
   }
 }
 
@@ -1428,7 +1605,11 @@ async function pollTick() {
   pollingBusy = true;
   const inst = INSTANCIAS[0];
   try {
-    const xml = await fetchVmixXml(inst.host, inst.port);
+    // Fetch vMix + health em paralelo
+    const [xml, healthResp] = await Promise.all([
+      fetchVmixXml(inst.host, inst.port),
+      apiGet('health').catch(() => ({ diagnosticos: [] })),
+    ]);
     const data = parseVmix(xml);
 
     inst.status = 'online';
@@ -1444,6 +1625,12 @@ async function pollTick() {
     CONFIGURADOS.forEach(c => {
       const p = INPUTS_PHOTOS.find(x => x.guid === c.guid);
       if (p) c.slides = p.total;
+    });
+
+    // Mescla health
+    Object.keys(HEALTH_BY_GUID).forEach(k => delete HEALTH_BY_GUID[k]);
+    (healthResp.diagnosticos || []).forEach(d => {
+      HEALTH_BY_GUID[d.guid] = d;
     });
 
     lastTickAt = Date.now();

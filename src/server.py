@@ -14,6 +14,7 @@ from __future__ import annotations
 import http.server
 import json
 import mimetypes
+import re
 import socketserver
 import string
 import sys
@@ -24,6 +25,27 @@ import urllib.request
 import webbrowser
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+# -------------------- Constantes globais --------------------
+
+# Formatos de imagem aceitos pelo vMix (Photos/ImageList).
+# Fonte: dialogo de arquivos do vMix — "*.JPG;*.BMP;*.PNG;*.GIF;*.JPEG;*.WEBP".
+IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+
+_NAT_RE = re.compile(r"(\d+)")
+
+
+def _natural_key(s: str) -> list:
+    """Chave de sort natural: `slide 2.png` antes de `slide 10.png`.
+
+    Quebra a string em tokens alternados texto/numero e converte os numericos
+    para int para comparacao correta.
+    """
+    return [int(t) if t.isdigit() else t.lower() for t in _NAT_RE.split(s)]
+
+
+def _is_image(p: Path) -> bool:
+    return p.suffix.lower() in IMAGE_EXTS
 
 # -------------------- Localizacao --------------------
 
@@ -56,7 +78,10 @@ def carregar_config() -> dict:
 
 
 def carregar_palestrantes(cfg: dict) -> dict:
-    """Retorna {guid: (nome, pasta_path, [pngs_ordenados])}."""
+    """Retorna {guid: (nome, pasta_path, [imagens_ordenadas_natural])}.
+
+    Aceita PNG, JPG, JPEG, BMP, GIF, WEBP. Ordenacao natural (slide 2 < slide 10).
+    """
     out: dict = {}
     for p in cfg.get("palestrantes", []):
         nome = p.get("nome", "").strip()
@@ -71,11 +96,14 @@ def carregar_palestrantes(cfg: dict) -> dict:
         if not pasta_path.is_dir():
             print(f"[aviso] pasta nao encontrada para {nome}: {pasta_path}", file=sys.stderr)
             continue
-        pngs = sorted(x.name for x in pasta_path.iterdir() if x.suffix.lower() == ".png")
-        if not pngs:
-            print(f"[aviso] pasta sem PNGs para {nome}: {pasta_path}", file=sys.stderr)
+        imagens = sorted(
+            (x.name for x in pasta_path.iterdir() if x.is_file() and _is_image(x)),
+            key=_natural_key,
+        )
+        if not imagens:
+            print(f"[aviso] pasta sem imagens para {nome}: {pasta_path}", file=sys.stderr)
             continue
-        out[guid] = (nome, pasta_path, pngs)
+        out[guid] = (nome, pasta_path, imagens)
     return out
 
 
@@ -86,13 +114,87 @@ SERVER_PORT = int(CFG.get("server_port", 5000))
 PALESTRANTES = carregar_palestrantes(CFG)
 
 
-def salvar_config(new_cfg: dict) -> None:
-    """Escreve config.json atomicamente e recarrega estado em memoria."""
-    global CFG, VMIX_HOST, VMIX_PORT, PALESTRANTES
+def validar_config(new_cfg: dict) -> list[str]:
+    """Retorna lista de erros encontrados no payload. Vazia = OK.
+
+    Valida:
+    - payload e dict
+    - 'palestrantes' e lista (se presente)
+    - cada palestrante tem nome, guid, pasta nao-vazios
+    - GUIDs unicos (case-insensitive)
+    - pasta existe no disco e contem >= 1 arquivo de imagem aceita
+    """
+    erros: list[str] = []
+
     if not isinstance(new_cfg, dict):
-        raise ValueError("payload deve ser um objeto JSON")
-    if not isinstance(new_cfg.get("palestrantes", []), list):
-        raise ValueError("'palestrantes' deve ser uma lista")
+        erros.append("config deve ser um objeto JSON")
+        return erros
+
+    pals = new_cfg.get("palestrantes", [])
+    if not isinstance(pals, list):
+        erros.append("'palestrantes' deve ser uma lista")
+        return erros
+
+    guids_vistos: dict[str, int] = {}
+    for i, p in enumerate(pals):
+        base = f"palestrantes[{i}]"
+        if not isinstance(p, dict):
+            erros.append(f"{base}: deve ser um objeto")
+            continue
+
+        nome = (p.get("nome") or "").strip()
+        guid = (p.get("guid") or "").strip().lower()
+        pasta_raw = (p.get("pasta") or "").strip()
+
+        if not nome:
+            erros.append(f"{base}.nome: obrigatorio")
+        if not guid:
+            erros.append(f"{base}.guid: obrigatorio")
+        if not pasta_raw:
+            erros.append(f"{base}.pasta: obrigatorio")
+
+        if guid:
+            if guid in guids_vistos:
+                erros.append(
+                    f"{base}.guid: duplicado — ja usado em palestrantes[{guids_vistos[guid]}]"
+                )
+            else:
+                guids_vistos[guid] = i
+
+        if pasta_raw:
+            pasta_path = Path(pasta_raw)
+            if not pasta_path.is_absolute():
+                pasta_path = (APP_DIR / pasta_raw).resolve()
+            if not pasta_path.is_dir():
+                erros.append(f"{base}.pasta: pasta nao existe: {pasta_path}")
+            else:
+                try:
+                    tem_imagem = any(
+                        x.is_file() and _is_image(x) for x in pasta_path.iterdir()
+                    )
+                except (PermissionError, OSError) as e:
+                    erros.append(f"{base}.pasta: erro lendo pasta: {e}")
+                    tem_imagem = False
+                if not tem_imagem:
+                    erros.append(
+                        f"{base}.pasta: nenhuma imagem encontrada "
+                        f"(formatos aceitos: {', '.join(IMAGE_EXTS)})"
+                    )
+
+    return erros
+
+
+def salvar_config(new_cfg: dict) -> None:
+    """Valida, escreve config.json atomicamente e recarrega estado em memoria.
+
+    Levanta ValueError("config_invalida", [lista_de_erros]) se validacao falhar.
+    Config em disco nao e alterado quando ha erros.
+    """
+    global CFG, VMIX_HOST, VMIX_PORT, PALESTRANTES
+    erros = validar_config(new_cfg)
+    if erros:
+        raise ValueError("config_invalida", erros)
+
     with _cfg_lock:
         tmp = CONFIG_PATH.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
@@ -172,8 +274,11 @@ def list_drives() -> list[dict]:
 
 
 def list_dir(path_str: str) -> dict:
-    """Lista subpastas (com contagem de PNGs) dentro de `path_str`.
+    """Lista subpastas (com contagem de imagens) dentro de `path_str`.
     Sem restricao de raiz: app roda local para operador do evento.
+
+    Cada item retorna {name, path, imagens, subdirs}. `imagens` conta arquivos
+    nos formatos de IMAGE_EXTS.
     """
     target = _safe_resolve(path_str)
     if not target.is_dir():
@@ -181,7 +286,7 @@ def list_dir(path_str: str) -> dict:
 
     items: list[dict] = []
     try:
-        children = sorted(target.iterdir(), key=lambda p: p.name.lower())
+        children = sorted(target.iterdir(), key=lambda p: _natural_key(p.name))
     except PermissionError:
         children = []
 
@@ -191,12 +296,12 @@ def list_dir(path_str: str) -> dict:
         try:
             if not child.is_dir():
                 continue
-            pngs = 0
+            imagens = 0
             subdirs = 0
             try:
                 for x in child.iterdir():
-                    if x.is_file() and x.suffix.lower() == ".png":
-                        pngs += 1
+                    if x.is_file() and _is_image(x):
+                        imagens += 1
                     elif x.is_dir() and not x.name.startswith("."):
                         subdirs += 1
             except (PermissionError, OSError):
@@ -204,7 +309,7 @@ def list_dir(path_str: str) -> dict:
             items.append({
                 "name": child.name,
                 "path": str(child),
-                "pngs": pngs,
+                "imagens": imagens,
                 "subdirs": subdirs,
             })
         except (PermissionError, OSError):
@@ -221,6 +326,43 @@ def fetch_vmix_xml() -> ET.Element:
     return ET.fromstring(data)
 
 
+def _input_by_num(root: ET.Element, num: str | None) -> ET.Element | None:
+    if num is None:
+        return None
+    return next(
+        (i for i in root.findall("inputs/input") if i.get("number") == str(num)),
+        None,
+    )
+
+
+def _input_by_key(root: ET.Element, key: str | None) -> ET.Element | None:
+    k = (key or "").lower()
+    if not k:
+        return None
+    return next(
+        (i for i in root.findall("inputs/input") if (i.get("key") or "").lower() == k),
+        None,
+    )
+
+
+def _find_palestrante_em(root: ET.Element, inp: ET.Element | None,
+                          palestrantes: dict) -> tuple[str, ET.Element] | None:
+    """Retorna (guid, input_elem_do_palestrante) se `inp` e um palestrante
+    diretamente ou envelopa um via overlay interno."""
+    if inp is None:
+        return None
+    k = (inp.get("key") or "").lower()
+    if k in palestrantes:
+        return (k, inp)
+    for ov in inp.findall("overlay"):
+        ov_key = (ov.get("key") or "").lower()
+        if ov_key in palestrantes:
+            target = _input_by_key(root, ov_key)
+            if target is not None:
+                return (ov_key, target)
+    return None
+
+
 def compute_state() -> dict:
     try:
         root = fetch_vmix_xml()
@@ -228,46 +370,20 @@ def compute_state() -> dict:
         return {"ok": False, "erro": f"vMix inacessivel ({VMIX_HOST}:{VMIX_PORT}): {e}"}
 
     active_num = root.findtext("active")
-    all_inputs = root.findall("inputs/input")
-
-    def input_by_num(num: str) -> ET.Element | None:
-        return next((i for i in all_inputs if i.get("number") == num), None)
-
-    def input_by_key(key: str) -> ET.Element | None:
-        k = (key or "").lower()
-        return next((i for i in all_inputs if (i.get("key") or "").lower() == k), None)
-
-    def find_palestrante_em(inp: ET.Element | None) -> tuple[str, ET.Element] | None:
-        """Retorna (guid, elemento_do_palestrante) se `inp` e um palestrante
-        diretamente ou envelopa um via overlay."""
-        if inp is None:
-            return None
-        k = (inp.get("key") or "").lower()
-        if k in PALESTRANTES:
-            return (k, inp)
-        for ov in inp.findall("overlay"):
-            ov_key = (ov.get("key") or "").lower()
-            if ov_key in PALESTRANTES:
-                target = input_by_key(ov_key)
-                if target is not None:
-                    return (ov_key, target)
-        return None
-
-    input_program = input_by_num(active_num)
+    input_program = _input_by_num(root, active_num)
     if input_program is None:
         return {"ok": True, "ativo": False, "mensagem": "Sem input em Program"}
 
-    # Prioridade: Program (direto ou via overlay interno)
-    # depois overlays globais (Overlay1-16) que estejam ativas
-    achado = find_palestrante_em(input_program)
+    # Prioridade: Program direto ou via overlay interno, depois overlays globais
+    achado = _find_palestrante_em(root, input_program, PALESTRANTES)
 
     if achado is None:
         for ov in root.findall("overlays/overlay"):
             inp_num = (ov.text or "").strip()
             if not inp_num:
                 continue
-            ov_inp = input_by_num(inp_num)
-            achado = find_palestrante_em(ov_inp)
+            ov_inp = _input_by_num(root, inp_num)
+            achado = _find_palestrante_em(root, ov_inp, PALESTRANTES)
             if achado is not None:
                 break
 
@@ -302,6 +418,121 @@ def compute_state() -> dict:
         "proximo_url": url_img(proximo) if proximo else None,
     }
 
+
+# -------------------- Diagnostico por palestrante --------------------
+
+def diagnosticar_palestrante(
+    guid: str, nome: str, pasta: str, root: ET.Element
+) -> dict:
+    """Retorna diagnostico estruturado de um palestrante contra o XML atual.
+
+    Status possiveis:
+    - "ok"                — GUID existe, pasta com imagens, filename atual bate
+    - "guid_orfao"        — input com esse GUID nao existe mais no vMix
+    - "pasta_inacessivel" — pasta nao e um diretorio no disco
+    - "sem_imagens"       — pasta existe mas nao tem arquivos de imagem
+    - "filename_mismatch" — title do vMix nao bate com nenhum arquivo da pasta
+    - "sem_pasta"         — pasta vazia (usado pelo endpoint /validate quando
+                            o operador ainda nao escolheu a pasta)
+    """
+    guid_low = (guid or "").lower().strip()
+    out: dict = {
+        "guid": guid_low,
+        "nome": nome,
+        "status": "ok",
+        "detalhe": "",
+        "num_input_atual": None,
+        "shorttitle_atual": None,
+        "title_atual": None,
+        "total_no_vmix": None,
+        "total_na_pasta": None,
+    }
+
+    inp = _input_by_key(root, guid_low)
+    if inp is None:
+        out["status"] = "guid_orfao"
+        out["detalhe"] = "input com este GUID nao existe no vMix atual"
+        return out
+
+    out["num_input_atual"] = int(inp.get("number") or 0) or None
+    out["shorttitle_atual"] = inp.get("shortTitle") or inp.get("title") or ""
+    out["title_atual"] = inp.get("title") or ""
+    try:
+        out["total_no_vmix"] = int(inp.get("duration") or 0) or None
+    except ValueError:
+        pass
+
+    # pasta vazia → so verificou GUID
+    pasta_raw = (pasta or "").strip()
+    if not pasta_raw:
+        out["status"] = "sem_pasta"
+        out["detalhe"] = "pasta nao informada — validacao parcial"
+        return out
+
+    pasta_path = Path(pasta_raw)
+    if not pasta_path.is_absolute():
+        pasta_path = (APP_DIR / pasta_raw).resolve()
+    if not pasta_path.is_dir():
+        out["status"] = "pasta_inacessivel"
+        out["detalhe"] = f"pasta nao existe: {pasta_path}"
+        return out
+
+    try:
+        imagens = sorted(
+            (x.name for x in pasta_path.iterdir() if x.is_file() and _is_image(x)),
+            key=_natural_key,
+        )
+    except (PermissionError, OSError) as e:
+        out["status"] = "pasta_inacessivel"
+        out["detalhe"] = f"erro lendo pasta: {e}"
+        return out
+
+    out["total_na_pasta"] = len(imagens)
+
+    if not imagens:
+        out["status"] = "sem_imagens"
+        out["detalhe"] = (
+            f"nenhuma imagem encontrada "
+            f"(formatos aceitos: {', '.join(IMAGE_EXTS)})"
+        )
+        return out
+
+    title = inp.get("title") or ""
+    idx = next((i for i, s in enumerate(imagens) if s in title), None)
+    if idx is None:
+        out["status"] = "filename_mismatch"
+        out["detalhe"] = (
+            f"title do vMix ('{title}') nao bate com nenhum arquivo da pasta"
+        )
+        return out
+
+    out["status"] = "ok"
+    out["detalhe"] = f"arquivo atual: {imagens[idx]} (#{idx + 1} de {len(imagens)})"
+    return out
+
+
+def diagnosticar_todos() -> list[dict]:
+    """Roda `diagnosticar_palestrante` para todos os palestrantes do config.
+
+    Se o vMix nao responder, retorna lista de diagnosticos com status 'vmix_offline'.
+    """
+    try:
+        root = fetch_vmix_xml()
+    except Exception as e:
+        return [{
+            "guid": (p.get("guid") or "").lower(),
+            "nome": p.get("nome", ""),
+            "status": "vmix_offline",
+            "detalhe": f"vMix inacessivel: {e}",
+        } for p in CFG.get("palestrantes", [])]
+
+    out: list[dict] = []
+    for p in CFG.get("palestrantes", []):
+        out.append(diagnosticar_palestrante(
+            p.get("guid", ""), p.get("nome", ""), p.get("pasta", ""), root
+        ))
+    return out
+
 # -------------------- HTTP handler --------------------
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -311,10 +542,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             msg = fmt
         s = str(msg)
-        # Silencia ruido: polling de /state do modo apresentador, ls do file
-        # browser e GET do config (chamado ao abrir o admin). POST do config
-        # aparece no log porque e uma acao de escrita.
-        if "/state" in s or "/admin/api/ls" in s or ("GET /admin/api/config" in s):
+        # Silencia ruido: polling a 500ms (/state, /health) e leituras frequentes
+        # (/ls, GET /config). POST /config continua visivel porque e escrita.
+        if ("/state" in s or "/admin/api/ls" in s
+                or "/admin/api/health" in s
+                or "GET /admin/api/config" in s):
             return
         super().log_message(fmt, *args)
 
@@ -436,6 +668,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"error": str(e)}, status=500)
             return
 
+        if sub == "health":
+            try:
+                self._send_json({"diagnosticos": diagnosticar_todos()})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if sub == "validate":
+            qs = urllib.parse.parse_qs(query)
+            guid = qs.get("guid", [""])[0].strip()
+            pasta = qs.get("pasta", [""])[0].strip()
+            nome = qs.get("nome", [""])[0].strip() or "?"
+            if not guid:
+                self._send_json({"error": "parametro 'guid' obrigatorio"}, status=400)
+                return
+            try:
+                root = fetch_vmix_xml()
+            except Exception as e:
+                self._send_json({
+                    "status": "vmix_offline",
+                    "detalhe": f"vMix inacessivel: {e}",
+                }, status=200)
+                return
+            self._send_json(diagnosticar_palestrante(guid, nome, pasta, root))
+            return
+
         self.send_error(404)
 
     def _handle_admin_post(self, sub: str) -> None:
@@ -451,8 +709,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 salvar_config(payload)
                 self._send_json({"ok": True, "palestrantes": len(PALESTRANTES)})
+            except ValueError as e:
+                # validar_config levantou com ("config_invalida", [erros])
+                if len(e.args) >= 2 and e.args[0] == "config_invalida":
+                    self._send_json({
+                        "ok": False,
+                        "error": "config_invalida",
+                        "erros": e.args[1],
+                    }, status=400)
+                else:
+                    self._send_json({"ok": False, "error": str(e)}, status=400)
             except Exception as e:
-                self._send_json({"ok": False, "error": str(e)}, status=400)
+                self._send_json({"ok": False, "error": str(e)}, status=500)
             return
 
         self.send_error(404)
