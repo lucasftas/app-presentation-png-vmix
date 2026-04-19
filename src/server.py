@@ -15,6 +15,7 @@ import http.server
 import json
 import mimetypes
 import socketserver
+import string
 import sys
 import threading
 import time
@@ -35,6 +36,9 @@ def app_dir() -> Path:
 APP_DIR = app_dir()
 CONFIG_PATH = APP_DIR / "config.json"
 INDEX_PATH = APP_DIR / "index.html"
+ADMIN_PATH = APP_DIR / "admin.html"
+
+_cfg_lock = threading.Lock()
 
 # -------------------- Config --------------------
 
@@ -81,6 +85,133 @@ VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
 SERVER_PORT = int(CFG.get("server_port", 5000))
 PALESTRANTES = carregar_palestrantes(CFG)
 
+
+def salvar_config(new_cfg: dict) -> None:
+    """Escreve config.json atomicamente e recarrega estado em memoria."""
+    global CFG, VMIX_HOST, VMIX_PORT, PALESTRANTES
+    if not isinstance(new_cfg, dict):
+        raise ValueError("payload deve ser um objeto JSON")
+    if not isinstance(new_cfg.get("palestrantes", []), list):
+        raise ValueError("'palestrantes' deve ser uma lista")
+    with _cfg_lock:
+        tmp = CONFIG_PATH.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(new_cfg, f, ensure_ascii=False, indent=2)
+        tmp.replace(CONFIG_PATH)
+        CFG = new_cfg
+        VMIX_HOST = CFG.get("vmix", {}).get("host", "localhost")
+        VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
+        PALESTRANTES = carregar_palestrantes(CFG)
+
+
+# -------------------- Admin helpers --------------------
+
+def _safe_resolve(p: str) -> Path:
+    return Path(p).expanduser().resolve()
+
+
+def get_preset_dir() -> Path | None:
+    """Extrai o diretorio pai do .vmixZip do preset atual do vMix."""
+    try:
+        root = fetch_vmix_xml()
+        preset = root.findtext("preset")
+        if preset:
+            p = _safe_resolve(preset).parent
+            if p.is_dir():
+                return p
+    except Exception:
+        return None
+    return None
+
+
+def get_roots() -> list[dict]:
+    """Lista raizes permitidas para navegar no file browser."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def add(path: Path, source: str) -> None:
+        if not path.is_dir():
+            return
+        key = str(path).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"path": str(path), "source": source})
+
+    # 1. Raizes configuradas explicitamente
+    for r in CFG.get("roots", []) or []:
+        try:
+            add(_safe_resolve(r), "configurado em config.json")
+        except Exception:
+            continue
+
+    # 2. Pasta pai do preset do vMix + avo (tipicamente pasta do evento)
+    preset_dir = get_preset_dir()
+    if preset_dir:
+        add(preset_dir, "pasta do preset vMix")
+        if preset_dir.parent != preset_dir:
+            add(preset_dir.parent, "pasta pai do preset vMix")
+
+    # 3. Fallback: pasta do app
+    add(APP_DIR, "pasta do app")
+
+    return out
+
+
+def list_drives() -> list[dict]:
+    """Enumera drives Windows acessiveis (C:\\, D:\\, ...)."""
+    out: list[dict] = []
+    for letter in string.ascii_uppercase:
+        p = Path(f"{letter}:\\")
+        try:
+            if p.exists() and p.is_dir():
+                out.append({"path": str(p), "label": f"{letter}:"})
+        except OSError:
+            continue
+    return out
+
+
+def list_dir(path_str: str) -> dict:
+    """Lista subpastas (com contagem de PNGs) dentro de `path_str`.
+    Sem restricao de raiz: app roda local para operador do evento.
+    """
+    target = _safe_resolve(path_str)
+    if not target.is_dir():
+        raise FileNotFoundError(f"Nao e uma pasta: {target}")
+
+    items: list[dict] = []
+    try:
+        children = sorted(target.iterdir(), key=lambda p: p.name.lower())
+    except PermissionError:
+        children = []
+
+    for child in children:
+        if child.name.startswith(".") or child.name.startswith("$"):
+            continue
+        try:
+            if not child.is_dir():
+                continue
+            pngs = 0
+            subdirs = 0
+            try:
+                for x in child.iterdir():
+                    if x.is_file() and x.suffix.lower() == ".png":
+                        pngs += 1
+                    elif x.is_dir() and not x.name.startswith("."):
+                        subdirs += 1
+            except (PermissionError, OSError):
+                pass
+            items.append({
+                "name": child.name,
+                "path": str(child),
+                "pngs": pngs,
+                "subdirs": subdirs,
+            })
+        except (PermissionError, OSError):
+            continue
+
+    return {"path": str(target), "items": items}
+
 # -------------------- compute_state --------------------
 
 def fetch_vmix_xml() -> ET.Element:
@@ -97,32 +228,53 @@ def compute_state() -> dict:
         return {"ok": False, "erro": f"vMix inacessivel ({VMIX_HOST}:{VMIX_PORT}): {e}"}
 
     active_num = root.findtext("active")
-    input_program = next(
-        (i for i in root.findall("inputs/input") if i.get("number") == active_num),
-        None,
-    )
+    all_inputs = root.findall("inputs/input")
+
+    def input_by_num(num: str) -> ET.Element | None:
+        return next((i for i in all_inputs if i.get("number") == num), None)
+
+    def input_by_key(key: str) -> ET.Element | None:
+        k = (key or "").lower()
+        return next((i for i in all_inputs if (i.get("key") or "").lower() == k), None)
+
+    def find_palestrante_em(inp: ET.Element | None) -> tuple[str, ET.Element] | None:
+        """Retorna (guid, elemento_do_palestrante) se `inp` e um palestrante
+        diretamente ou envelopa um via overlay."""
+        if inp is None:
+            return None
+        k = (inp.get("key") or "").lower()
+        if k in PALESTRANTES:
+            return (k, inp)
+        for ov in inp.findall("overlay"):
+            ov_key = (ov.get("key") or "").lower()
+            if ov_key in PALESTRANTES:
+                target = input_by_key(ov_key)
+                if target is not None:
+                    return (ov_key, target)
+        return None
+
+    input_program = input_by_num(active_num)
     if input_program is None:
         return {"ok": True, "ativo": False, "mensagem": "Sem input em Program"}
 
-    # Caso 1: input em Program é diretamente um palestrante
-    # Caso 2: input composto com palestrante em overlay
-    guid = (input_program.get("key") or "").lower()
-    input_palestrante = input_program if guid in PALESTRANTES else None
+    # Prioridade: Program (direto ou via overlay interno)
+    # depois overlays globais (Overlay1-16) que estejam ativas
+    achado = find_palestrante_em(input_program)
 
-    if input_palestrante is None:
-        for ov in input_program.findall("overlay"):
-            ov_key = (ov.get("key") or "").lower()
-            if ov_key in PALESTRANTES:
-                guid = ov_key
-                input_palestrante = next(
-                    (i for i in root.findall("inputs/input")
-                     if (i.get("key") or "").lower() == ov_key),
-                    None,
-                )
+    if achado is None:
+        for ov in root.findall("overlays/overlay"):
+            inp_num = (ov.text or "").strip()
+            if not inp_num:
+                continue
+            ov_inp = input_by_num(inp_num)
+            achado = find_palestrante_em(ov_inp)
+            if achado is not None:
                 break
 
-    if input_palestrante is None:
+    if achado is None:
         return {"ok": True, "ativo": False, "mensagem": "Nenhum slide de palestrante em Program"}
+
+    guid, input_palestrante = achado
 
     nome, pasta_path, slides = PALESTRANTES[guid]
     title = input_palestrante.get("title", "")
@@ -158,7 +310,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             msg = fmt % args if args else fmt
         except Exception:
             msg = fmt
-        if "/state" in str(msg):
+        s = str(msg)
+        # Silencia ruido: polling de /state do modo apresentador, ls do file
+        # browser e GET do config (chamado ao abrir o admin). POST do config
+        # aparece no log porque e uma acao de escrita.
+        if "/state" in s or "/admin/api/ls" in s or ("GET /admin/api/config" in s):
             return
         super().log_message(fmt, *args)
 
@@ -197,6 +353,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(compute_state())
             return
 
+        if path in ("/admin", "/admin/"):
+            self._send_file(ADMIN_PATH, "text/html; charset=utf-8", cache=False)
+            return
+
+        if path.startswith("/admin/api/"):
+            self._handle_admin_get(path[len("/admin/api/"):], parsed.query)
+            return
+
         if path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -225,6 +389,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         self.send_error(404)
 
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = urllib.parse.unquote(parsed.path)
+
+        if path.startswith("/admin/api/"):
+            self._handle_admin_post(path[len("/admin/api/"):])
+            return
+
+        self.send_error(404)
+
+    # -------------------- Admin API --------------------
+
+    def _handle_admin_get(self, sub: str, query: str) -> None:
+        if sub == "config":
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    self._send_json(json.load(f))
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if sub == "roots":
+            try:
+                self._send_json({"roots": get_roots()})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if sub == "ls":
+            qs = urllib.parse.parse_qs(query)
+            p = qs.get("path", [""])[0].strip()
+            if not p:
+                # Tela inicial: drives + atalhos (raizes detectadas)
+                self._send_json({
+                    "drives": list_drives(),
+                    "shortcuts": get_roots(),
+                    "items": [],
+                })
+                return
+            try:
+                self._send_json(list_dir(p))
+            except FileNotFoundError as e:
+                self._send_json({"error": str(e)}, status=404)
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        self.send_error(404)
+
+    def _handle_admin_post(self, sub: str) -> None:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length) if length > 0 else b""
+        try:
+            payload = json.loads(raw.decode("utf-8")) if raw else None
+        except Exception as e:
+            self._send_json({"ok": False, "error": f"JSON invalido: {e}"}, status=400)
+            return
+
+        if sub == "config":
+            try:
+                salvar_config(payload)
+                self._send_json({"ok": True, "palestrantes": len(PALESTRANTES)})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
+            return
+
+        self.send_error(404)
+
 
 class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
@@ -233,9 +465,10 @@ class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 def main() -> None:
     print("=" * 60)
     print("  Modo Apresentador - app-presentation-png-vmix")
-    print(f"  vMix: http://{VMIX_HOST}:{VMIX_PORT}/api")
-    print(f"  URL:  http://localhost:{SERVER_PORT}")
-    print(f"  App:  {APP_DIR}")
+    print(f"  vMix:   http://{VMIX_HOST}:{VMIX_PORT}/api")
+    print(f"  Live:   http://localhost:{SERVER_PORT}/")
+    print(f"  Admin:  http://localhost:{SERVER_PORT}/admin")
+    print(f"  App:    {APP_DIR}")
     print("=" * 60)
     if PALESTRANTES:
         print("  Palestrantes carregados:")

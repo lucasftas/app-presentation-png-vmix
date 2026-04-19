@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard — Modo Apresentador vMix</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    background: #111317;
+    color: #e8eaed;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+  }
+  body { padding: 16px 28px 80px; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #2a2e37;
+    margin-bottom: 20px;
+  }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
+  header .tag {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    background: #2a2e37;
+    color: #9aa0a6;
+    font-weight: 500;
+  }
+  header .spacer { flex: 1; }
+  header a.link {
+    font-size: 13px;
+    color: #8ab4f8;
+    text-decoration: none;
+    padding: 6px 10px;
+    border: 1px solid #3a3e47;
+    border-radius: 4px;
+  }
+  header a.link:hover { background: #1e2128; }
+
+  h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #9aa0a6;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+
+  /* ---------- Topo: palestrantes configurados ---------- */
+  .section { margin-bottom: 28px; }
+  .section-hint { font-size: 12px; color: #7a808a; margin-bottom: 10px; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card.add {
+    border-style: dashed;
+    border-color: #3a3e47;
+    color: #7a808a;
+    align-items: center;
+    justify-content: center;
+    min-height: 130px;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .card.add:hover { border-color: #8ab4f8; color: #8ab4f8; }
+
+  .card .name {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4caf50;
+    box-shadow: 0 0 6px #4caf50;
+  }
+  .card .dot.off { background: #555; box-shadow: none; }
+  .card .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #9aa0a6;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+  }
+  .card .row .val { color: #c8cdd4; }
+  .card .folder {
+    font-size: 12px;
+    color: #8ab4f8;
+    word-break: break-all;
+    background: #12141a;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    line-height: 1.45;
+  }
+  .card .actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .btn {
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid #3a3e47;
+    background: transparent;
+    color: #c8cdd4;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { background: #2a2e37; }
+  .btn.primary {
+    background: #8ab4f8;
+    color: #111317;
+    border-color: #8ab4f8;
+    font-weight: 600;
+  }
+  .btn.primary:hover { background: #a8c6f9; }
+  .btn.danger { color: #f28b82; border-color: #4a2a2a; }
+  .btn.danger:hover { background: #3a1a1a; }
+
+  /* ---------- Instâncias vMix ---------- */
+  .instances {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 20px;
+    padding: 6px 12px 6px 10px;
+    font-size: 13px;
+  }
+  .chip .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4caf50;
+    box-shadow: 0 0 6px #4caf50;
+  }
+  .chip .dot.off { background: #555; box-shadow: none; }
+  .chip .dot.err { background: #f28b82; box-shadow: 0 0 6px #f28b82; }
+  .chip .meta { color: #7a808a; font-size: 11px; }
+  .chip button {
+    background: none; border: none; color: #7a808a; cursor: pointer;
+    padding: 0 0 0 4px; font-size: 14px;
+  }
+  .chip button:hover { color: #f28b82; }
+
+  /* ---------- Tabs ---------- */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #2a2e37;
+    margin-bottom: 12px;
+  }
+  .tab {
+    padding: 8px 14px;
+    font-size: 13px;
+    background: transparent;
+    border: none;
+    color: #9aa0a6;
+    cursor: pointer;
+    font-family: inherit;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab.active {
+    color: #8ab4f8;
+    border-bottom-color: #8ab4f8;
+  }
+  .tab:hover { color: #c8cdd4; }
+  .tab .count {
+    background: #2a2e37;
+    color: #9aa0a6;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    margin-left: 6px;
+  }
+  .tab.active .count { background: #8ab4f8; color: #111317; }
+
+  /* ---------- Lista de inputs ---------- */
+  .input-row {
+    display: grid;
+    grid-template-columns: 44px minmax(260px, 1.6fr) minmax(280px, 1fr) minmax(180px, 0.8fr) 140px;
+    gap: 16px;
+    align-items: center;
+    padding: 12px 16px;
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 6px;
+    margin-bottom: 6px;
+  }
+  .input-row.highlighted {
+    border-color: #f2b705;
+    background: #1e1c14;
+  }
+  .input-row.program {
+    border-color: #e63946;
+    background: #1e1416;
+    box-shadow: 0 0 0 1px #e6394633;
+  }
+  .input-row.configured {
+    border-color: #4caf50;
+    background: #141e15;
+  }
+
+  .input-num {
+    width: 36px; height: 32px;
+    border-radius: 5px;
+    background: #2a2e37;
+    box-shadow: inset 0 0 0 1px #3a3e47;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #e8eaed;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.5px;
+  }
+  .input-main .title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e8eaed;
+  }
+  .input-main .badges {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: 6px;
+  }
+  .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: #2a2e37;
+    color: #c8cdd4;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .badge.program { background: #e63946; color: #fff; }
+  .badge.preview { background: #f2b705; color: #111317; }
+  .badge.match { background: #f2b705; color: #111317; }
+  .badge.configured { background: #4caf50; color: #111317; }
+  .input-main .guid {
+    font-size: 11px;
+    color: #7a808a;
+    font-family: ui-monospace, monospace;
+    margin-top: 2px;
+  }
+  .input-meta {
+    font-size: 12px;
+    color: #9aa0a6;
+    font-family: ui-monospace, monospace;
+  }
+  .input-meta .label { color: #7a808a; }
+  .input-meta .val { color: #c8cdd4; }
+  .input-progress {
+    font-size: 11px;
+    color: #9aa0a6;
+  }
+  .input-progress .mini-bar {
+    height: 4px;
+    background: #2a2e37;
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .input-progress .mini-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #e63946, #f2b705);
+  }
+  .input-actions { display: flex; justify-content: flex-end; }
+
+  /* Agrupamentos na aba "Sugestões" */
+  .suggestion-group {
+    background: #1a1d23;
+    border: 1px solid #f2b70544;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .suggestion-group .head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .suggestion-group .head .title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f2b705;
+  }
+  .suggestion-group .head .sub {
+    font-size: 12px;
+    color: #9aa0a6;
+    margin-left: auto;
+  }
+  .suggestion-pair {
+    display: grid;
+    grid-template-columns: 1fr 24px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-top: 1px dashed #2a2e37;
+  }
+  .suggestion-pair:first-of-type { border-top: none; }
+  .suggestion-pair .arrow { text-align: center; color: #7a808a; }
+  .suggestion-pair .slot {
+    background: #12141a;
+    border: 1px solid #2a2e37;
+    border-radius: 4px;
+    padding: 8px 10px;
+  }
+  .suggestion-pair .slot .lbl {
+    font-size: 10px;
+    color: #7a808a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+  .suggestion-pair .slot .val {
+    font-size: 13px;
+    color: #e8eaed;
+  }
+  .suggestion-pair .slot .guid {
+    font-size: 10px;
+    color: #7a808a;
+    font-family: ui-monospace, monospace;
+    margin-top: 2px;
+  }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 10px;
+    padding: 22px 26px;
+    width: min(1100px, 94vw);
+    max-height: 94vh;
+    overflow-y: auto;
+  }
+  .modal h3 { font-size: 16px; margin-bottom: 14px; }
+  .modal .field { margin-bottom: 12px; }
+  .modal label {
+    display: block;
+    font-size: 12px;
+    color: #9aa0a6;
+    margin-bottom: 4px;
+  }
+  .modal input, .modal select {
+    width: 100%;
+    background: #12141a;
+    border: 1px solid #2a2e37;
+    color: #e8eaed;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .modal input:focus, .modal select:focus {
+    outline: none;
+    border-color: #8ab4f8;
+  }
+  .modal .hint {
+    font-size: 11px;
+    color: #7a808a;
+    margin-top: 4px;
+  }
+  .modal .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  /* ---------- Live preview footer ---------- */
+  .live-preview {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 40;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .live-preview .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #e63946; box-shadow: 0 0 6px #e63946;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 50% { opacity: 0.4; } }
+
+  /* ---------- Realtime hint + edit pencil ---------- */
+  .realtime-hint {
+    font-size: 11px;
+    color: #7a808a;
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .realtime-hint strong { color: #8ab4f8; font-style: normal; }
+  .live-num {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #c8cdd4;
+  }
+  .live-num-box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 20px;
+    padding: 0 5px;
+    background: #2a2e37;
+    color: #e8eaed;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    box-shadow: inset 0 0 0 1px #3a3e47;
+  }
+  .live-num-box::before {
+    content: "";
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #4caf50;
+    box-shadow: 0 0 4px #4caf50;
+    margin-right: 5px;
+  }
+  .live-num-absent {
+    background: #3a1a1a;
+    color: #f28b82;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  /* Card com palestrante ao vivo */
+  .card-live {
+    border-color: #e63946;
+    box-shadow: 0 0 0 1px #e6394644, 0 4px 20px rgba(230, 57, 70, 0.15);
+  }
+  .filename-row .filename-val {
+    font-size: 11px;
+    color: #a6ddb1;
+    font-family: ui-monospace, monospace;
+    word-break: break-all;
+    text-align: right;
+    max-width: 65%;
+  }
+  .card .mini-bar {
+    height: 5px;
+    background: #2a2e37;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 2px;
+  }
+  .card .mini-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #e63946, #f2b705);
+    transition: width 0.3s ease-out;
+  }
+  .chip-dashed {
+    cursor: pointer;
+    border-style: dashed;
+    color: #7a808a;
+  }
+  .chip-dashed:hover { color: #8ab4f8; border-color: #8ab4f8; }
+
+  /* Box inline padronizado pro número do input onde quer que apareça */
+  .inline-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 20px;
+    padding: 0 6px;
+    background: #2a2e37;
+    color: #e8eaed;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    box-shadow: inset 0 0 0 1px #3a3e47;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .live-num.flash { animation: flash 0.8s ease-out; }
+  @keyframes flash {
+    0% { background: #f2b705; color: #111317; }
+    100% { background: #2a2e37; color: #c8cdd4; }
+  }
+
+  .edit-pencil {
+    background: none;
+    border: none;
+    color: #7a808a;
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 13px;
+  }
+  .edit-pencil:hover { color: #8ab4f8; }
+
+  /* ---------- Modal file browser ---------- */
+  .modal-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #7a808a;
+    margin: 16px 0 6px;
+    font-weight: 600;
+  }
+  .pasta-suggested {
+    background: #14261a;
+    border: 1px solid #4caf5044;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pasta-suggested.empty {
+    background: #1a1d23;
+    border-color: #2a2e37;
+    color: #7a808a;
+    font-size: 12px;
+  }
+  .pasta-suggested .icon { font-size: 16px; }
+  .pasta-suggested .info { flex: 1; min-width: 0; }
+  .pasta-suggested .info .path {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: #a6ddb1;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .pasta-suggested .info .lbl {
+    font-size: 11px;
+    color: #7a808a;
+  }
+
+  .tree-wrapper {
+    border: 1px solid #2a2e37;
+    border-radius: 6px;
+    background: #12141a;
+    overflow: hidden;
+  }
+  .tree-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: #1a1d23;
+    border-bottom: 1px solid #2a2e37;
+    font-size: 12px;
+  }
+  .tree-header .breadcrumb {
+    flex: 1;
+    font-family: ui-monospace, monospace;
+    color: #9aa0a6;
+    word-break: break-all;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .btn-sm {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+  .tree-list {
+    max-height: 55vh;
+    min-height: 320px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .tree-section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #7a808a;
+    padding: 10px 12px 4px;
+    font-weight: 600;
+    background: #14161c;
+    border-top: 1px solid #2a2e37;
+  }
+  .tree-section-label:first-child { border-top: none; }
+  .tree-item.drive { color: #a6c8ff; font-weight: 600; }
+  .tree-item.drive .icon { font-size: 16px; }
+  .tree-item.shortcut { color: #f2b705; }
+  .tree-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    border-left: 2px solid transparent;
+  }
+  .tree-item-use {
+    margin-left: 6px;
+    padding: 3px 10px !important;
+    font-size: 11px !important;
+  }
+  .tree-item:hover { background: #1a1d23; border-left-color: #8ab4f8; }
+  .tree-item.root { color: #f2b705; font-weight: 500; }
+  .tree-item .icon { font-size: 14px; }
+  .tree-item .name { flex: 1; }
+  .tree-item .meta {
+    font-size: 11px;
+    color: #7a808a;
+    font-family: ui-monospace, monospace;
+  }
+  .tree-item.has-pngs .meta { color: #8ab4f8; }
+  .tree-empty {
+    padding: 20px;
+    text-align: center;
+    color: #7a808a;
+    font-size: 12px;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Dashboard — Modo Apresentador</h1>
+  <span class="tag">MOCK v0.2</span>
+  <div class="spacer"></div>
+  <a href="/" class="link" target="_blank">abrir modo apresentador →</a>
+</header>
+
+<!-- ==================== TOPO: CONFIGURADOS ==================== -->
+<section class="section">
+  <h2>Palestrantes monitorados</h2>
+  <div class="section-hint">Inputs que serão reconhecidos como slideshow do palestrante. A página pública reflete estes em tempo real.</div>
+  <div id="cards-configurados" class="cards"></div>
+</section>
+
+<!-- ==================== BASE: FONTES ==================== -->
+<section class="section">
+  <h2>Fonte — Instâncias vMix</h2>
+  <div class="instances" id="instances"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="sugestoes">Sugestões automáticas <span class="count" id="count-sug">0</span></button>
+    <button class="tab" data-tab="photos">Photos / slideshows <span class="count" id="count-photos">0</span></button>
+    <button class="tab" data-tab="compostos">Blanks com slides (Colour + overlay) <span class="count" id="count-comp">0</span></button>
+    <button class="tab" data-tab="todos">Todos os inputs <span class="count" id="count-all">0</span></button>
+  </div>
+
+  <div id="tab-sugestoes" class="tab-panel"></div>
+  <div id="tab-photos" class="tab-panel" style="display:none"></div>
+  <div id="tab-compostos" class="tab-panel" style="display:none"></div>
+  <div id="tab-todos" class="tab-panel" style="display:none"></div>
+</section>
+
+<!-- Live status -->
+<div class="live-preview">
+  <span class="dot"></span>
+  <span>vMix: <strong id="live-version">29.0.0.47</strong></span>
+  <span>·</span>
+  <span>Program: <strong id="live-program"><span class="inline-num">89</span> Obrigado.png</strong></span>
+</div>
+
+<!-- Modal add/edit palestrante -->
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">Adicionar palestrante</h3>
+
+    <div class="field">
+      <label>Input do vMix (GUID é a chave estável)</label>
+      <select id="f-input" onchange="onInputChange()"></select>
+      <div class="hint">O nome e a pasta são sugeridos a partir deste input. GUID nunca muda, número/título seguem o vMix em tempo real.</div>
+    </div>
+
+    <div class="field">
+      <label>Nome de exibição</label>
+      <input type="text" id="f-nome" placeholder="—">
+      <div class="hint">Preenchido automaticamente do input. Edite aqui ou clique no lápis do card depois.</div>
+    </div>
+
+    <div class="modal-section-title">Pasta de PNGs</div>
+
+    <div id="pasta-suggested" class="pasta-suggested empty"></div>
+
+    <div class="tree-wrapper">
+      <div class="tree-header">
+        <button class="btn btn-sm" type="button" onclick="treeUp()">↑ subir</button>
+        <button class="btn btn-sm" type="button" onclick="treeGo(null)">🏠 início</button>
+        <div class="breadcrumb" id="tree-breadcrumb">—</div>
+        <button class="btn primary btn-sm" type="button" id="tree-use-current" onclick="usarPastaAtual()" style="display:none">✓ usar esta pasta</button>
+      </div>
+      <div class="tree-list" id="tree-list"></div>
+    </div>
+
+    <div class="field" style="margin-top:12px">
+      <label>Caminho selecionado</label>
+      <input type="text" id="f-pasta" placeholder="clique em uma pasta acima ou digite o caminho">
+      <div class="hint">Aceita caminho absoluto ou relativo ao <code>config.json</code>. UNC (<code>\\servidor\share\...</code>) funciona.</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="button" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" type="button" onclick="salvarPalestrante()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========================================================================
+   MOCK DATA — populado com dados reais lidos do vMix local em 2026-04-19
+   ======================================================================== */
+const INSTANCIAS = [
+  { id: 'local', label: 'vMix Local', host: 'localhost', port: 8088, status: 'online', version: '29.0.0.47', preset: 'Jornada Full Face 2 Edição' }
+];
+
+const INPUTS_PHOTOS = [
+  { guid: '51f89804-b46f-4716-8914-4f692c63c38c', num: 60, shortTitle: 'PNG SLIDE Wagner', title: 'PNG SLIDE Wagner - slide 07.png', total: 49, idx: 7 },
+  { guid: '1cb3e57a-b400-4751-8c16-a5d5a88dfe03', num: 71, shortTitle: '003 - Vinícius', title: '003 - Vinícius - slide 16.png', total: 33, idx: 16 },
+  { guid: 'fc56787d-71c7-4708-bb14-e75ac2c70e46', num: 73, shortTitle: '004 - Camila', title: '004 - Camila - slide 16.png', total: 16, idx: 16 },
+  { guid: 'ea032892-108e-4e00-b6da-e697f29291b4', num: 67, shortTitle: 'A Primeira Parte Pitch', title: 'A Primeira Parte Pitch - slide 05.png', total: 5, idx: 3 },
+  { guid: '41a5b783-980f-4213-9d94-641f869c9e1a', num: 69, shortTitle: 'B Segunda Parte Pitch', title: 'B Segunda Parte Pitch - slide 20.png', total: 4, idx: 2 },
+  { guid: '6475ab73-f8db-4b25-85f6-b05e9dc155fd', num: 82, shortTitle: '005 - Demonstração Resultados', title: '005 - Demonstração Resultados - Wagner.png', total: 1, idx: 2 },
+];
+
+/* Colour inputs que envelopam um Photos em overlay[1] — blanks de slides */
+const INPUTS_COMPOSTOS = [
+  { guid: '8ce11bad-a75a-42fa-9299-2d220b822a82', num: 61, title: 'B      SLIDES WAGNER + CAM', childGuid: '51f89804-b46f-4716-8914-4f692c63c38c' },
+  { guid: '9dd4c339-c1d1-43c7-aaf7-687dd79a56b1', num: 68, title: 'K      PITCH + CAM PT1', childGuid: 'ea032892-108e-4e00-b6da-e697f29291b4' },
+  { guid: 'c585efcf-f949-40f7-a4a2-b52257386158', num: 70, title: 'M      PITCH + CAMERA PT2', childGuid: '41a5b783-980f-4213-9d94-641f869c9e1a' },
+  { guid: '7235da8b-d12a-437a-a4be-6b8d2556d42a', num: 72, title: 'Q     SLIDE VINI + CAM', childGuid: '1cb3e57a-b400-4751-8c16-a5d5a88dfe03' },
+  { guid: '7d279f6b-45d8-4f7d-813e-0f11c25a50ec', num: 80, title: 'R      CAMILA + SLIDES', childGuid: 'fc56787d-71c7-4708-bb14-e75ac2c70e46' },
+  { guid: '50cd0837-1f2d-4c9a-a9de-670e1f3a8d7b', num: 83, title: 'U      DEMONSTRAÇÃO RESULTADOS', childGuid: '6475ab73-f8db-4b25-85f6-b05e9dc155fd' },
+];
+
+/* Palestrantes configurados — carregado via GET /admin/api/config no boot */
+let CONFIGURADOS = [];
+
+/* Estado live — atualizado a cada 500ms pelo fetch direto no vMix */
+const LIVE = { programNum: 0, programTitle: '', activeGuidMatch: null };
+
+/* File tree — alimentado pelos endpoints /admin/api/roots e /admin/api/ls
+   Cache local por path p/ evitar reflush desnecessário */
+const TREE_CACHE = { roots: null, byPath: {} };
+
+async function apiGet(path) {
+  const r = await fetch('/admin/api/' + path, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function apiPost(path, body) {
+  const r = await fetch('/admin/api/' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.ok === false) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function normalize(s) {
+  return (s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function tokens(s) {
+  const stop = new Set(['png', 'slide', 'slides', 'cam', 'com', 'de', 'do', 'da']);
+  return normalize(s).split(' ').filter(t => t && !stop.has(t));
+}
+
+/* Procura pasta com melhor overlap de tokens, consultando raízes + 1º nível */
+async function matchFolderByTokens(shortTitle) {
+  const target = new Set(tokens(shortTitle));
+  if (target.size === 0) return null;
+
+  let best = null;
+  const visited = new Set();
+
+  async function scan(path, depth) {
+    if (visited.has(path) || depth > 2) return;
+    visited.add(path);
+    let data;
+    try { data = await fetchLs(path); } catch { return; }
+    for (const item of data.items || []) {
+      if (item.pngs > 0) {
+        const candToks = tokens(item.name);
+        const overlap = candToks.filter(t => target.has(t)).length;
+        if (overlap > 0) {
+          const score = overlap * 10 - Math.abs(candToks.length - target.size);
+          if (!best || score > best.score) {
+            best = { path: item.path, pngs: item.pngs, score };
+          }
+        }
+      } else if (item.subdirs > 0 && depth < 2) {
+        await scan(item.path, depth + 1);
+      }
+    }
+  }
+
+  const roots = await fetchRoots();
+  for (const r of roots) {
+    await scan(r.path, 0);
+  }
+  return best;
+}
+
+async function fetchRoots() {
+  if (TREE_CACHE.roots) return TREE_CACHE.roots;
+  const data = await apiGet('roots');
+  TREE_CACHE.roots = data.roots || [];
+  return TREE_CACHE.roots;
+}
+
+async function fetchLs(path) {
+  if (TREE_CACHE.byPath[path]) return TREE_CACHE.byPath[path];
+  const data = await apiGet('ls?path=' + encodeURIComponent(path));
+  TREE_CACHE.byPath[path] = data;
+  return data;
+}
+
+/* ========================================================================
+   RENDER
+   ======================================================================== */
+function shortGuid(g) { return g.slice(0, 8) + '…'; }
+function padNum(n) { return String(n ?? 0).padStart(2, '0'); }
+function naturalPasta(p) { return p || ''; }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderInstancias() {
+  const host = document.getElementById('instances');
+  host.innerHTML = INSTANCIAS.map(i => {
+    const statusClass = i.status === 'online' ? '' : i.status === 'error' ? 'err' : 'off';
+    const statusLabel = i.status === 'online' ? 'online' : i.status === 'error' ? 'sem conexão' : 'offline';
+    return `
+      <div class="chip">
+        <span class="dot ${statusClass}"></span>
+        <span>${escapeHtml(i.label)}</span>
+        <span class="meta">${i.host}:${i.port}</span>
+        <span class="meta">· ${statusLabel}${i.version ? ` · v${escapeHtml(i.version)}` : ''}</span>
+        <button type="button" title="remover">×</button>
+      </div>
+    `;
+  }).join('') + `
+    <div class="chip chip-dashed">
+      <span>+ adicionar instância</span>
+    </div>
+    <div class="chip chip-dashed">
+      <span>⟳ escanear rede</span>
+    </div>
+  `;
+}
+
+function liveInputInfo(guid) {
+  const p = INPUTS_PHOTOS.find(x => x.guid === guid);
+  if (p) return { num: p.num, title: p.shortTitle, type: 'Photos', idx: p.idx, total: p.total, filename: p.title };
+  const c = INPUTS_COMPOSTOS.find(x => x.guid === guid);
+  if (c) return { num: c.num, title: c.title.trim(), type: 'Colour' };
+  return null;
+}
+
+function renderConfigurados() {
+  const host = document.getElementById('cards-configurados');
+  const cards = CONFIGURADOS.map((c, i) => {
+    const live = LIVE.activeGuidMatch === c.guid;
+    const info = liveInputInfo(c.guid);
+    const liveNum = info
+      ? `<span class="live-num" title="Número e título vêm do vMix em tempo real"><span class="live-num-box">${padNum(info.num)}</span>${escapeHtml(info.title)}</span>`
+      : `<span class="live-num live-num-absent" title="Input não encontrado no vMix">input ausente</span>`;
+
+    const slidesInfo = info && info.type === 'Photos'
+      ? `
+        <div class="row"><span>Slide atual</span><span class="val"><strong>${info.idx}</strong> / ${info.total}</span></div>
+        <div class="row filename-row"><span>Arquivo</span><span class="val filename-val" title="${escapeHtml(info.filename)}">${escapeHtml(info.filename) || '—'}</span></div>
+        <div class="mini-bar"><div class="mini-fill" style="width:${info.total ? (info.idx/info.total)*100 : 0}%"></div></div>
+      `
+      : `<div class="row"><span>Slides</span><span class="val">${c.slides} PNGs (último fetch)</span></div>`;
+
+    return `
+      <div class="card ${live ? 'card-live' : ''}">
+        <div class="name">
+          <span class="dot ${live ? '' : 'off'}"></span>
+          <span id="nome-${i}">${escapeHtml(c.nome)}</span>
+          <button class="edit-pencil" type="button" title="Editar nome" onclick="editarNome(${i})">✎</button>
+          ${live ? '<span class="badge program">ao vivo</span>' : ''}
+        </div>
+        <div class="row"><span>Input agora</span>${liveNum}</div>
+        ${slidesInfo}
+        <div class="row"><span>GUID</span><span class="val">${shortGuid(c.guid)}</span></div>
+        <div class="folder" title="${escapeHtml(c.pasta)}">${escapeHtml(naturalPasta(c.pasta))}</div>
+        <div class="actions">
+          <button class="btn" type="button" onclick="openModal('${c.guid}')">config</button>
+          <button class="btn danger" type="button" onclick="removerPalestrante(${i})">remover</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  host.innerHTML = cards + `
+    <div class="card add" onclick="openModal()">+ adicionar palestrante</div>
+  `;
+}
+
+function renderSugestoes() {
+  const host = document.getElementById('tab-sugestoes');
+  const configuradosGuids = new Set(CONFIGURADOS.map(c => c.guid));
+
+  const pares = INPUTS_COMPOSTOS.map(comp => {
+    const photo = INPUTS_PHOTOS.find(p => p.guid === comp.childGuid);
+    if (!photo) return null;
+    const jaConfig = configuradosGuids.has(photo.guid);
+    return { comp, photo, jaConfig };
+  }).filter(Boolean);
+
+  document.getElementById('count-sug').textContent = pares.length;
+
+  if (pares.length === 0) {
+    host.innerHTML = `<div class="section-hint">Nenhuma sugestão — sem Colour envelopando Photos no vMix conectado.</div>`;
+    return;
+  }
+
+  host.innerHTML = `
+    <div class="section-hint">
+      Detectei <strong>${pares.length} pares</strong> onde um input <em>Colour</em> (blank) tem um <em>Photos</em> em overlay[1].
+      Este é o seu padrão: monte uma vez e adicione como palestrante com 1 clique — o monitor segue o Photos tanto quando o blank está em Program quanto quando está em overlay global.
+    </div>
+    <div class="suggestion-group">
+      <div class="head">
+        <div class="title">⚡ Pares blank ↔ slideshow detectados</div>
+        <div class="sub">clique em "adicionar" para configurar</div>
+      </div>
+      ${pares.map(({comp, photo, jaConfig}) => `
+        <div class="suggestion-pair">
+          <div class="slot">
+            <div class="lbl">Blank (Colour)</div>
+            <div class="val"><span class="inline-num">${padNum(comp.num)}</span> ${comp.title.trim()}</div>
+            <div class="guid">${shortGuid(comp.guid)}</div>
+          </div>
+          <div class="arrow">↔</div>
+          <div class="slot" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div style="flex:1">
+              <div class="lbl">Slideshow (Photos)</div>
+              <div class="val"><span class="inline-num">${padNum(photo.num)}</span> ${photo.shortTitle} <span class="badge">${photo.total} slides</span></div>
+              <div class="guid">${shortGuid(photo.guid)}</div>
+            </div>
+            ${jaConfig
+              ? `<span class="badge configured">já configurado</span>`
+              : `<button class="btn primary" onclick="addFromSuggestion('${photo.guid}')">+ adicionar</button>`}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderInputRow(input, kind) {
+  const isPhotos = kind === 'photos';
+  const configuradosGuids = new Set(CONFIGURADOS.map(c => c.guid));
+  const jaConfig = configuradosGuids.has(input.guid) || (input.childGuid && configuradosGuids.has(input.childGuid));
+  const isProgram = input.num === LIVE.programNum;
+
+  const classes = ['input-row'];
+  if (isProgram) classes.push('program');
+  else if (jaConfig) classes.push('configured');
+
+  const titleClean = escapeHtml((input.title || '').trim() || input.shortTitle || '');
+  const pct = (isPhotos && input.total) ? Math.min(100, (input.idx / input.total) * 100) : 0;
+  const filename = isPhotos ? escapeHtml(input.title || '') : '';
+
+  return `
+    <div class="${classes.join(' ')}">
+      <div class="input-num">${padNum(input.num)}</div>
+      <div class="input-main">
+        <div class="title">
+          ${titleClean}
+          <span class="badges">
+            ${isProgram ? '<span class="badge program">program</span>' : ''}
+            ${jaConfig ? '<span class="badge configured">monitorado</span>' : ''}
+            ${!isPhotos ? '<span class="badge">colour+photo</span>' : ''}
+          </span>
+        </div>
+        <div class="guid">${input.guid}</div>
+      </div>
+      <div class="input-meta">
+        ${isPhotos
+          ? `<span class="label">arquivo atual:</span> <span class="val">${filename || '—'}</span>`
+          : `<span class="label">contém:</span> <span class="val">${shortGuid(input.childGuid)}</span>`}
+      </div>
+      <div class="input-progress">
+        ${isPhotos ? `
+          <div>slide <strong>${input.idx}</strong>/${input.total}</div>
+          <div class="mini-bar"><div class="mini-fill" style="width:${pct}%"></div></div>
+        ` : ''}
+      </div>
+      <div class="input-actions">
+        ${jaConfig
+          ? `<button class="btn" disabled>já adicionado</button>`
+          : `<button class="btn primary" type="button" onclick="addFromInput('${isPhotos ? input.guid : input.childGuid}')">+ usar como slide</button>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderPhotos() {
+  document.getElementById('count-photos').textContent = INPUTS_PHOTOS.length;
+  document.getElementById('tab-photos').innerHTML = INPUTS_PHOTOS.map(i => renderInputRow(i, 'photos')).join('');
+}
+
+function renderCompostos() {
+  document.getElementById('count-comp').textContent = INPUTS_COMPOSTOS.length;
+  document.getElementById('tab-compostos').innerHTML = INPUTS_COMPOSTOS.map(i => renderInputRow(i, 'composto')).join('');
+}
+
+function renderTodos() {
+  const all = [...INPUTS_PHOTOS.map(i => ({...i, _kind:'photos'})),
+               ...INPUTS_COMPOSTOS.map(i => ({...i, _kind:'composto'}))];
+  all.sort((a,b) => a.num - b.num);
+  document.getElementById('count-all').textContent = all.length;
+  document.getElementById('tab-todos').innerHTML = all.map(i => renderInputRow(i, i._kind)).join('');
+}
+
+/* ========================================================================
+   INTERAÇÕES
+   ======================================================================== */
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(x => x.style.display = 'none');
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).style.display = '';
+  });
+});
+
+let editingGuid = null;
+let treePath = null;
+
+function openModal(prefilGuid = null) {
+  const existente = prefilGuid ? CONFIGURADOS.find(c => c.guid === prefilGuid) : null;
+  editingGuid = existente ? prefilGuid : null;
+  document.getElementById('modal-title').textContent = existente ? 'Configurar palestrante' : 'Adicionar palestrante';
+
+  const sel = document.getElementById('f-input');
+  sel.innerHTML = INPUTS_PHOTOS.map(p =>
+    `<option value="${p.guid}" ${p.guid === prefilGuid ? 'selected' : ''}>[${padNum(p.num)}] ${escapeHtml(p.shortTitle)} (${p.total} slides)</option>`
+  ).join('');
+
+  document.getElementById('f-nome').value = existente ? existente.nome : '';
+  document.getElementById('f-pasta').value = existente ? existente.pasta : '';
+
+  treeGo(null);
+  onInputChange(true);
+  document.getElementById('modal').classList.add('show');
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+function addFromInput(guid) { openModal(guid); }
+function addFromSuggestion(guid) { openModal(guid); }
+
+async function onInputChange(keepUserName = false) {
+  const guid = document.getElementById('f-input').value;
+  const photo = INPUTS_PHOTOS.find(p => p.guid === guid);
+  if (!photo) return;
+
+  const nomeInput = document.getElementById('f-nome');
+  const atual = nomeInput.value.trim();
+  const vazio = !atual;
+  const eraSugestaoAnterior = nomeInput.dataset.suggested && nomeInput.dataset.suggested === atual;
+  if (vazio || (!keepUserName && eraSugestaoAnterior)) {
+    nomeInput.value = photo.shortTitle;
+    nomeInput.dataset.suggested = photo.shortTitle;
+  }
+
+  const host = document.getElementById('pasta-suggested');
+  host.className = 'pasta-suggested empty';
+  host.innerHTML = `<span class="icon">⏳</span> procurando pasta para "<em>${escapeHtml(photo.shortTitle)}</em>"...`;
+
+  let match = null;
+  try { match = await matchFolderByTokens(photo.shortTitle); } catch {}
+
+  if (match) {
+    host.className = 'pasta-suggested';
+    host.innerHTML = `
+      <span class="icon">📁</span>
+      <div class="info">
+        <div class="lbl">Pasta sugerida (match por nome) — ${match.pngs} PNGs</div>
+        <div class="path" title="${escapeHtml(match.path)}">${escapeHtml(match.path)}</div>
+      </div>
+      <button class="btn primary btn-sm" type="button" data-path="${escapeHtml(match.path)}" onclick="usarPasta(this.dataset.path)">usar</button>
+    `;
+  } else {
+    host.className = 'pasta-suggested empty';
+    host.innerHTML = `Nenhuma pasta com PNGs encontrada para "<em>${escapeHtml(photo.shortTitle)}</em>". Navegue abaixo.`;
+  }
+}
+
+async function renderTree() {
+  const bc = document.getElementById('tree-breadcrumb');
+  const list = document.getElementById('tree-list');
+
+  if (treePath === null) {
+    bc.textContent = 'Início — escolha um drive ou atalho';
+    list.innerHTML = `<div class="tree-empty">carregando...</div>`;
+    try {
+      const data = await apiGet('ls');
+      const drives = data.drives || [];
+      const shortcuts = data.shortcuts || [];
+      let html = '';
+
+      if (shortcuts.length) {
+        html += `<div class="tree-section-label">Atalhos detectados</div>`;
+        html += shortcuts.map(s => `
+          <div class="tree-item shortcut" data-path="${escapeHtml(s.path)}" onclick="treeGo(this.dataset.path)">
+            <span class="icon">⭐</span>
+            <span class="name">${escapeHtml(s.path)}</span>
+            <span class="meta">${escapeHtml(s.source)}</span>
+          </div>
+        `).join('');
+      }
+
+      if (drives.length) {
+        html += `<div class="tree-section-label">Discos</div>`;
+        html += drives.map(d => `
+          <div class="tree-item drive" data-path="${escapeHtml(d.path)}" onclick="treeGo(this.dataset.path)">
+            <span class="icon">💾</span>
+            <span class="name">${escapeHtml(d.label)}</span>
+            <span class="meta">${escapeHtml(d.path)}</span>
+          </div>
+        `).join('');
+      }
+
+      if (!html) html = `<div class="tree-empty">Nenhum disco/atalho disponível</div>`;
+      list.innerHTML = html;
+    } catch (e) {
+      list.innerHTML = `<div class="tree-empty">erro ao carregar: ${escapeHtml(e.message)}</div>`;
+    }
+    return;
+  }
+
+  bc.textContent = treePath;
+  list.innerHTML = `<div class="tree-empty">carregando...</div>`;
+  try {
+    const data = await fetchLs(treePath);
+    const items = data.items || [];
+    if (!items.length) {
+      list.innerHTML = `<div class="tree-empty">pasta sem subpastas</div>`;
+      return;
+    }
+    list.innerHTML = items.map(it => {
+      const hasPngs = it.pngs > 0;
+      const drillable = it.subdirs > 0;
+      const metaBits = [];
+      if (hasPngs) metaBits.push(`${it.pngs} PNGs`);
+      if (drillable) metaBits.push(`${it.subdirs} subpastas`);
+      const inlineUse = hasPngs && drillable
+        ? `<button class="btn primary btn-sm tree-item-use" type="button" data-path="${escapeHtml(it.path)}" onclick="event.stopPropagation(); usarPasta(this.dataset.path)">usar</button>`
+        : '';
+      return `
+        <div class="tree-item ${hasPngs ? 'has-pngs' : ''}"
+             data-path="${escapeHtml(it.path)}"
+             data-drillable="${drillable}"
+             data-haspngs="${hasPngs}"
+             onclick="treeItemClick(event, this)">
+          <span class="icon">${hasPngs ? '🖼️' : '📁'}</span>
+          <span class="name">${escapeHtml(it.name)}</span>
+          <span class="meta">${metaBits.join(' · ') || '—'}</span>
+          ${inlineUse}
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="tree-empty">erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function treeItemClick(ev, el) {
+  const path = el.dataset.path;
+  const drillable = el.dataset.drillable === 'true';
+  const hasPngs = el.dataset.haspngs === 'true';
+  if (hasPngs && !drillable) return usarPasta(path);
+  if (drillable) return treeGo(path);
+  // sem nada pra fazer
+}
+
+function treeGo(path) {
+  treePath = path;
+  const btn = document.getElementById('tree-use-current');
+  if (btn) btn.style.display = path ? '' : 'none';
+  renderTree();
+}
+
+function usarPastaAtual() {
+  if (treePath) usarPasta(treePath);
+}
+async function treeUp() {
+  if (treePath === null) return;
+  // Caso 1: raiz de drive (ex "C:\" ou "C:\\") — sobe para home (drives + atalhos)
+  if (/^[A-Za-z]:[\\/]?$/.test(treePath)) {
+    return treeGo(null);
+  }
+  const isUNC = treePath.startsWith('\\\\');
+  const parts = treePath.split(/[\\/]/).filter(x => x);
+  parts.pop();
+  // UNC precisa de \\server\share mínimo
+  if (parts.length === 0 || (isUNC && parts.length < 2)) {
+    return treeGo(null);
+  }
+  const sep = treePath.includes('\\') ? '\\' : '/';
+  let parent = parts.join(sep);
+  if (isUNC) parent = '\\\\' + parent;
+  // Drive raiz precisa de backslash final (ex "D:\\")
+  if (/^[A-Za-z]:$/.test(parent)) parent += '\\';
+  try {
+    await fetchLs(parent);
+    treeGo(parent);
+  } catch {
+    treeGo(null);
+  }
+}
+function usarPasta(path) {
+  document.getElementById('f-pasta').value = path;
+}
+
+async function salvarPalestrante() {
+  const nome = document.getElementById('f-nome').value.trim();
+  const guid = document.getElementById('f-input').value;
+  const pasta = document.getElementById('f-pasta').value.trim();
+  if (!nome || !guid || !pasta) { alert('Preencha todos os campos'); return; }
+  const photo = INPUTS_PHOTOS.find(p => p.guid === guid);
+  const entry = { nome, guid, pasta, slides: photo ? photo.total : 0 };
+
+  let novoArr;
+  if (editingGuid) {
+    const i = CONFIGURADOS.findIndex(c => c.guid === editingGuid);
+    novoArr = [...CONFIGURADOS];
+    if (i >= 0) novoArr[i] = entry; else novoArr.push(entry);
+  } else {
+    const jaExiste = CONFIGURADOS.findIndex(c => c.guid === guid);
+    novoArr = [...CONFIGURADOS];
+    if (jaExiste >= 0) novoArr[jaExiste] = entry; else novoArr.push(entry);
+  }
+
+  try {
+    await persistirConfig(novoArr);
+    CONFIGURADOS = novoArr;
+    closeModal();
+    renderAll();
+  } catch (e) {
+    alert('Erro salvando config: ' + e.message);
+  }
+}
+
+async function removerPalestrante(i) {
+  if (!confirm(`Remover "${CONFIGURADOS[i].nome}"?`)) return;
+  const novoArr = CONFIGURADOS.filter((_, idx) => idx !== i);
+  try {
+    await persistirConfig(novoArr);
+    CONFIGURADOS = novoArr;
+    renderAll();
+  } catch (e) {
+    alert('Erro removendo: ' + e.message);
+  }
+}
+
+async function editarNome(i) {
+  const novo = prompt('Novo nome de exibição:', CONFIGURADOS[i].nome);
+  if (!novo || !novo.trim()) return;
+  const novoArr = [...CONFIGURADOS];
+  novoArr[i] = { ...novoArr[i], nome: novo.trim() };
+  try {
+    await persistirConfig(novoArr);
+    CONFIGURADOS = novoArr;
+    renderAll();
+  } catch (e) {
+    alert('Erro salvando: ' + e.message);
+  }
+}
+
+/* Monta payload completo do config.json e persiste via POST */
+let LAST_CONFIG = null;
+async function persistirConfig(palestrantes) {
+  if (!LAST_CONFIG) LAST_CONFIG = await apiGet('config');
+  const novo = { ...LAST_CONFIG, palestrantes };
+  await apiPost('config', novo);
+  LAST_CONFIG = novo;
+}
+
+function renderAll() {
+  renderInstancias();
+  renderConfigurados();
+  renderSugestoes();
+  renderPhotos();
+  renderCompostos();
+  renderTodos();
+  updateLivePreview();
+}
+
+function updateLivePreview() {
+  const vEl = document.getElementById('live-version');
+  const pEl = document.getElementById('live-program');
+  if (vEl) vEl.textContent = INSTANCIAS[0].version || '—';
+  if (pEl) pEl.innerHTML = `<span class="inline-num">${padNum(LIVE.programNum)}</span> ${escapeHtml(LIVE.programTitle || '—')}`;
+}
+
+/* ========================================================================
+   POLLING LIVE — fetch XML do vMix a cada 500ms e atualiza tudo
+   ======================================================================== */
+async function fetchVmixXml(host, port) {
+  const url = `http://${host}:${port}/api`;
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const text = await r.text();
+  const xml = new DOMParser().parseFromString(text, 'text/xml');
+  if (xml.querySelector('parsererror')) throw new Error('XML inválido');
+  return xml;
+}
+
+function parseVmix(xml) {
+  const version = xml.querySelector('version')?.textContent || '?';
+  const activeNum = parseInt(xml.querySelector('active')?.textContent || '0', 10);
+  const inputs = Array.from(xml.querySelectorAll('inputs > input'));
+
+  const all = inputs.map(i => ({
+    guid: (i.getAttribute('key') || '').toLowerCase(),
+    num: parseInt(i.getAttribute('number') || '0', 10),
+    type: i.getAttribute('type'),
+    title: i.getAttribute('title') || '',
+    shortTitle: i.getAttribute('shortTitle') || i.getAttribute('title') || '',
+    selectedIndex: i.hasAttribute('selectedIndex') ? parseInt(i.getAttribute('selectedIndex'), 10) : null,
+    duration: i.hasAttribute('duration') ? parseInt(i.getAttribute('duration'), 10) : null,
+    overlays: Array.from(i.children).filter(c => c.tagName.toLowerCase() === 'overlay').map(ov => ({
+      index: parseInt(ov.getAttribute('index') || '0', 10),
+      key: (ov.getAttribute('key') || '').toLowerCase(),
+    })),
+  }));
+
+  const photos = all.filter(i => i.type === 'Photos').map(i => ({
+    guid: i.guid,
+    num: i.num,
+    shortTitle: i.shortTitle,
+    title: i.title,
+    total: i.duration || 0,
+    idx: i.selectedIndex != null ? i.selectedIndex : 0,
+  }));
+  const photoGuids = new Set(photos.map(p => p.guid));
+
+  const compostos = all
+    .filter(i => i.type === 'Colour')
+    .map(i => {
+      const child = i.overlays.find(ov => photoGuids.has(ov.key));
+      if (!child) return null;
+      return { guid: i.guid, num: i.num, title: i.title, childGuid: child.key };
+    })
+    .filter(Boolean);
+
+  const activeInput = all.find(i => i.num === activeNum);
+  let activeGuidMatch = null;
+  if (activeInput) {
+    if (photoGuids.has(activeInput.guid)) {
+      activeGuidMatch = activeInput.guid;
+    } else {
+      const ov = activeInput.overlays.find(o => photoGuids.has(o.key));
+      if (ov) activeGuidMatch = ov.key;
+    }
+  }
+
+  const presetEl = xml.querySelector('preset');
+  const preset = presetEl ? presetEl.textContent : null;
+
+  return {
+    version,
+    programNum: activeNum,
+    programTitle: activeInput ? activeInput.title : '',
+    activeGuidMatch,
+    photos,
+    compostos,
+    preset,
+  };
+}
+
+let pollingBusy = false;
+let lastTickAt = 0;
+
+async function pollTick() {
+  if (pollingBusy) return;
+  if (document.getElementById('modal').classList.contains('show')) return;
+  pollingBusy = true;
+  const inst = INSTANCIAS[0];
+  try {
+    const xml = await fetchVmixXml(inst.host, inst.port);
+    const data = parseVmix(xml);
+
+    inst.status = 'online';
+    inst.version = data.version;
+    INPUTS_PHOTOS.length = 0; INPUTS_PHOTOS.push(...data.photos);
+    INPUTS_COMPOSTOS.length = 0; INPUTS_COMPOSTOS.push(...data.compostos);
+    LIVE.programNum = data.programNum;
+    LIVE.programTitle = data.programTitle;
+    LIVE.activeGuidMatch = data.activeGuidMatch;
+    LIVE.lastUpdate = Date.now();
+
+    // Atualiza a contagem total de slides dos palestrantes configurados
+    CONFIGURADOS.forEach(c => {
+      const p = INPUTS_PHOTOS.find(x => x.guid === c.guid);
+      if (p) c.slides = p.total;
+    });
+
+    lastTickAt = Date.now();
+    renderAll();
+  } catch (e) {
+    inst.status = 'error';
+    inst.error = e.message;
+    renderInstancias();
+  } finally {
+    pollingBusy = false;
+  }
+}
+
+/* ========================================================================
+   BOOT — carrega config do server, popula instância/palestrantes, inicia polling
+   ======================================================================== */
+async function boot() {
+  try {
+    LAST_CONFIG = await apiGet('config');
+    CONFIGURADOS = (LAST_CONFIG.palestrantes || []).map(p => ({
+      nome: p.nome, guid: (p.guid || '').toLowerCase(), pasta: p.pasta, slides: 0
+    }));
+    const vmix = LAST_CONFIG.vmix || {};
+    INSTANCIAS[0] = {
+      id: 'local', label: 'vMix',
+      host: vmix.host || 'localhost',
+      port: vmix.port || 8088,
+      status: 'offline', version: ''
+    };
+  } catch (e) {
+    console.warn('Não consegui carregar config:', e);
+  }
+  renderAll();
+  pollTick();
+  setInterval(pollTick, 500);
+}
+boot();
+</script>
+</body>
+</html>
