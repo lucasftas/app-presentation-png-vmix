@@ -1,19 +1,12 @@
 {
   "vmix": {
-    "host": "192.168.1.100",
+    "host": "localhost",
     "port": 8088
   },
   "server_port": 5000,
-  "palestrantes": [
-    {
-      "nome": "Palestrante 1",
-      "guid": "00000000-0000-0000-0000-000000000000",
-      "pasta": "../001 - Palestrante 1"
-    },
-    {
-      "nome": "Palestrante 2",
-      "guid": "00000000-0000-0000-0000-000000000001",
-      "pasta": "../002 - Palestrante 2"
-    }
-  ]
+  "roots": [
+    "\\\\vmix\\4TB\\Live Jornada Full Face\\Slides",
+    "D:\\Slides"
+  ],
+  "palestrantes": []
 }

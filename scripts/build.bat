@@ -27,6 +27,7 @@ if errorlevel 1 (
 )
 
 copy /y src\index.html dist\ >nul
+copy /y src\admin.html dist\ >nul
 copy /y config.example.json dist\ >nul
 
 echo.
