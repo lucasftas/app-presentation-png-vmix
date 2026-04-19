@@ -11,6 +11,21 @@
 - [x] Criação do repositório privado no GitHub (`app-presentation-png-vmix`)
 - [x] Primeiro commit e push para `main`
 
+## 2026-04-19 — sessão "à prova de show ao vivo" v0.3.0 (TDD + miniaturas)
+
+- [x] Conversa identificou 10 rachaduras após v0.2.0: match ambíguo, arquivo sumido, config corrompido, CORS dependency, UNC lento, sem heartbeat, sem telemetria de clientes, logs sem rotação, imagens em RAM
+- [x] Plano em 6 fases: (2) recovery → (1) match ancorado → (6) miniaturas → (3) rede → (4) observabilidade → (5) streaming
+- [x] Fase 2: `carregar_config` com recovery em caso de JSON corrompido + backup em `config.bak.json`; `rescan_pasta(guid)` + `/img` responde 410 Gone quando arquivo some
+- [x] Fase 1: `match_filename(title, imagens)` ancorado com casefold e desempate por comprimento
+- [x] Fase 6: `listar_preview` + `preview_img_path` com bloqueio de traversal; grid CSS 16:9 + lightbox fullscreen; auto-render no `agendarTestar`
+- [x] Fase 3: `_LS_EXECUTOR` com `future.result(timeout=3s)`; `/admin/api/vmix_xml` como proxy; frontend `fetchVmixXml` com fallback; banners globais no dashboard e index; heartbeat "atualizado há X"
+- [x] Fase 4: `_CLIENTES` + `registrar_cliente` + `clientes_ativos`; chip `👤 N` no header; `setup_logging` com `RotatingFileHandler` em `logs/YYYY-MM-DD.log`
+- [x] Fase 5: `_send_file` streaming via `shutil.copyfileobj` + tratamento de `BrokenPipeError`
+- [x] TDD: 60 testes no total, 24 novos cobrindo as 6 fases
+- [x] Validação real contra vMix rodando: todos os endpoints retornaram o esperado incluindo 410 Gone e bloqueio de path traversal
+- [x] Docs atualizados (README resiliência + CHANGELOG v0.3.0 + IMPLEMENTATIONS detalhes técnicos)
+- [x] Release v0.3.0 (filé)
+
 ## 2026-04-19 — sessão robustez v0.2.0 (TDD + formatos de imagem)
 
 - [x] Plano em plan mode aprovado com 6 fases (infra testes + IMAGE_EXTS + natural sort + validação POST + health endpoint + botão testar)

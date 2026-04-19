@@ -1,5 +1,55 @@
 # Implementations
 
+## v0.3.0 — 2026-04-19
+
+**Resumo:** release "à prova de show ao vivo" — fecha as 10 rachaduras identificadas após v0.2.0. Coberto por 60 testes stdlib (24 novos).
+
+**Fase 1 — Match ancorado (`match_filename`):**
+- Antes: `s in title` batia com substrings (slide 1 ganhava quando era slide 10)
+- Agora: `casefold()` + escolha do filename de maior comprimento em empate
+- Usado por `compute_state` e `diagnosticar_palestrante`
+
+**Fase 2 — Recovery automático:**
+- `carregar_config`: trata `FileNotFoundError`, `json.JSONDecodeError` e `OSError` sem derrubar o server; faz backup em `config.bak.json` e sobe com `_config_default()`
+- `rescan_pasta(guid) -> list[str]` pública — re-lê filesystem de um palestrante e atualiza `PALESTRANTES` sob `_cfg_lock`
+- Handler `/img/<guid>/<arq>` chama `rescan_pasta` no miss; se ainda não achar, responde **HTTP 410 Gone** com JSON `{error: "arquivo_removido", detalhe: ...}`
+
+**Fase 3 — Resiliência de rede:**
+- `_LS_EXECUTOR` (ThreadPoolExecutor, 4 workers) isola `list_dir` — `future.result(timeout=3.0)` devolve `{items: [], timeout: true}` se UNC travar
+- Nova rota `GET /admin/api/vmix_xml` proxifica o XML do vMix (útil quando admin corre num host sem acesso direto ao vMix)
+- Admin frontend: `fetchVmixXml` agora é array `[direct, proxy]`, itera até dar certo
+- Banner global fixo no admin quando `failStreak >= 3`, com contador `secs` desde offlineSince
+- Banner equivalente no modo apresentador (`index.html`) quando `/state.ok === false` em 3 ticks
+- Heartbeat no rodapé: `atualizado há X ms/s`, classes CSS `warn` (>2s) e `err` (>8s); tick independente de 250ms pra manter contador correndo
+
+**Fase 4 — Observabilidade:**
+- `_CLIENTES: dict[str, float]` + `_clientes_lock` — IP → timestamp do último `GET /state`
+- `registrar_cliente(ip)` chamado em cada request de `/state`; GC automático após 5min de inatividade
+- `clientes_ativos(janela_s=30)` retorna lista `[{ip, ultimo_hit_s}]` ordenada
+- Rota `GET /admin/api/clientes` + chip `👤 N` no header do admin com tooltip listando IPs
+- `setup_logging()` usa `RotatingFileHandler` em `logs/YYYY-MM-DD.log` (10MB, 5 backups); handler do servidor encaminha log via `logger.info`
+
+**Fase 5 — Streaming:**
+- `_send_file` usa `Path.stat().st_size` pra `Content-Length` e `shutil.copyfileobj(..., length=64*1024)` em vez de `read_bytes()`
+- Trata `BrokenPipeError` e `ConnectionResetError` como normal (cliente desconectou mid-stream)
+
+**Fase 6 — Grid de miniaturas + lightbox:**
+- `listar_preview(pasta) -> {path, total, items: [{name, url}]}` — imagens ordenadas naturalmente; URLs apontam pro `/admin/api/preview/img`
+- `preview_img_path(pasta, arq) -> Path` — resolve com `relative_to` pra bloquear path traversal; levanta `PermissionError` em caso de ataque ou tentativa de servir não-imagem
+- 2 rotas novas no handler + silêncio de log pra `/admin/api/preview` (50+ requests por abertura do modal)
+- Frontend: bloco `preview-grid` (CSS `grid auto-fill minmax(120px, 1fr)` + `aspect-ratio: 16/9 object-fit: cover`) alimentado por `renderPreview()`, disparado junto com `agendarTestar` (debounce 400 ms)
+- Lightbox: overlay fullscreen com Esc-to-close, click no fundo também fecha
+
+**Validação end-to-end real:**
+- `/admin/api/vmix_xml` retornou HTTP 200 com 42850 bytes do XML do vMix
+- `/admin/api/clientes` registrou e expôs 1 cliente ativo após GET `/state`
+- `/admin/api/health` com match ancorado reportou `ok` para Wagner + Vinícius
+- `/admin/api/preview` listou 50 imagens da pasta do Wagner em ordem natural
+- `/admin/api/preview/img` serviu 370KB de uma miniatura real
+- Path traversal (`..\..\etc\passwd`) → HTTP 404
+- Arquivo inexistente em `/img/<guid>/...` → HTTP 410 (não mais 404 silencioso)
+- `logs/2026-04-19.log` criado automaticamente no boot do server
+
 ## v0.2.0 — 2026-04-19
 
 **Resumo:** release de robustez — config inválido não salva, cada card do dashboard mostra o estado real do palestrante, próximo slide não pula mais na ordem errada, e slides em JPG/JPEG/BMP/GIF/WEBP funcionam sem precisar renomear pra PNG. Coberto por 36 testes stdlib.

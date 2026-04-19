@@ -111,5 +111,38 @@ class ListDirTests(unittest.TestCase):
             self.assertEqual(nomes, ["slide 1", "slide 2", "slide 10"])
 
 
+class ListDirTimeoutTests(unittest.TestCase):
+    """Fase 3: list_dir nao pode bloquear worker indefinidamente em UNC lento."""
+
+    def test_timeout_retorna_parcial_com_flag(self):
+        import threading
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # Cria uma funcao que simula iterdir lento
+            real_iterdir = Path.iterdir
+            bloqueio = threading.Event()
+
+            def slow_iterdir(self_path):
+                if self_path == root:
+                    bloqueio.wait(timeout=5)  # bloqueia 5s
+                return real_iterdir(self_path)
+
+            original = server.list_dir
+            # Simulamos via monkey patch mais simples: passa timeout curto
+            from unittest import mock
+            with mock.patch.object(Path, "iterdir", new=slow_iterdir):
+                resultado = server.list_dir(str(root), timeout=0.5)
+            self.assertTrue(resultado.get("timeout"), "esperava timeout=True no resultado")
+            self.assertEqual(resultado.get("items"), [])
+
+    def test_sem_timeout_retorna_normal(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "sub").mkdir()
+            resultado = server.list_dir(str(root), timeout=2.0)
+            self.assertFalse(resultado.get("timeout", False))
+            self.assertEqual(len(resultado["items"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

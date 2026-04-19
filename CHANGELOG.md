@@ -3,6 +3,35 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-04-19
+
+### Added
+- Match de filename ancorado (`match_filename`) — resolve ambiguidade `slide 1.png` vs `slide 10.png`, desempate pelo mais longo
+- Re-scan automático no handler `/img/<guid>/<arquivo>` — se arquivo sumiu depois do boot, re-lê a pasta; se realmente não existe mais, responde **410 Gone** com JSON descritivo
+- Recovery automático de `config.json` corrompido — backup em `config.bak.json`, log de aviso, server sobe com config vazia
+- Endpoint `GET /admin/api/preview?pasta=...` + `GET /admin/api/preview/img?pasta=&arq=` — grid de miniaturas do modal com path-traversal bloqueado
+- Endpoint `GET /admin/api/vmix_xml` — proxy do XML do vMix (fallback CORS pro admin)
+- Endpoint `GET /admin/api/clientes` — IPs que acessaram `/state` nos últimos 30 s
+- Grid de miniaturas + lightbox fullscreen no modal de adicionar/editar palestrante
+- Banner vermelho fixo (dashboard e modo apresentador) quando vMix offline há 3 ticks
+- Heartbeat visual no rodapé do admin ("atualizado há X ms/s" com cor por severidade)
+- Chip "👤 N" no header mostrando tablets/browsers conectados
+- Logs com rotação em `logs/YYYY-MM-DD.log` via `logging.handlers.RotatingFileHandler` (10MB × 5 backups)
+- Timeout de 3s em `list_dir` via `ThreadPoolExecutor` — UNC lento não bloqueia worker
+- `rescan_pasta(guid)` como função pública reusável
+- 24 testes novos (total 60) cobrindo: match ancorado, recovery, rescan, preview, path traversal, clientes ativos, timeout, streaming
+
+### Changed
+- `_send_file` agora usa `shutil.copyfileobj` com chunks de 64KB (streaming) — slides grandes não explodem RAM
+- `compute_state` e `diagnosticar_palestrante` usam o novo `match_filename` ancorado
+- `carregar_config`: não crasha mais em JSON corrompido ou arquivo ausente; retorna default com aviso
+- `main()` chama `setup_logging()` e adiciona `Logs:` ao banner de boot
+- Handler `log_message` encaminha pro logger (console + arquivo) em vez de stderr bruto
+- `fetchVmixXml` no admin tenta CORS direto primeiro, fallback para proxy `/admin/api/vmix_xml`
+
+### Fixed
+- `/img/<guid>/<arq>` retornava 404 silencioso quando arquivo era removido da pasta depois do boot — agora faz rescan e responde 410 Gone com diagnóstico
+
 ## [0.2.0] — 2026-04-19
 
 ### Added

@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.2.0 — validação stricta, badges de saúde, natural sort, suporte PNG/JPG/JPEG/BMP/GIF/WEBP
+**Status:** ✅ v0.3.0 — à prova de show ao vivo: match ancorado, recovery automático, grid de miniaturas, proxy CORS, heartbeat, clientes conectados, logs com rotação, streaming de imagens
 
 ---
 
@@ -49,12 +49,28 @@ Interface web dinâmica que se atualiza a cada 500 ms com o estado do vMix:
   - **File browser estilo explorer**: drives do Windows + atalhos detectados (preset do vMix + pasta pai) + navegação livre com breadcrumb + botão "✓ usar esta pasta"
   - Auto-match de pasta por tokens do nome do slideshow (ex: shortTitle "003 - Vinícius" → sugere `…\Slides\003 - Vinícius`)
 - **Badges de saúde** em cada card: `✓ OK`, `⚠ GUID órfão`, `✕ Pasta inacessível`, `✕ Sem imagens`, `⚠ Filename não bate`, `⚠ vMix offline` — atualizadas a cada 500 ms
+- **Grid de miniaturas** no modal quando você escolhe uma pasta — ver todas as imagens em thumbnail pra confirmar visualmente que é a pasta certa antes de salvar; clique abre lightbox fullscreen
 - **Botão "🔍 testar"** no modal — valida GUID + pasta + filename contra o vMix atual antes de salvar, com check-list inline
 - **Validação stricta** no save: nomes vazios, GUIDs duplicados, pastas inexistentes, pastas sem imagens — todos rejeitados com mensagens estruturadas
+- **Heartbeat no rodapé** — mostra "atualizado há X ms/s", verde < 2s, amarelo < 8s, vermelho acima
+- **Banner vermelho** no topo (dashboard e modo apresentador) quando vMix offline há mais de 3 ticks
+- **Chip "👤 N"** no header mostra quantos tablets estão assistindo ao modo apresentador agora
 - **Edição inline** do nome via ✎ no card
 - **Persistência** no `config.json` com hot-reload em memória (sem restart do servidor)
 
 Números de input exibidos com box padronizado e padding de 2 dígitos (`05`, `07`, `89`) — todos lidos ao vivo do vMix, então se você reordenar/renomear inputs lá, o dashboard atualiza sozinho. O **GUID** é a chave estável persistida no config.
+
+## Resiliência (v0.3.0)
+
+Para aguentar show ao vivo sem quebras silenciosas:
+
+- **Match de filename ancorado** — resolve ambiguidade `slide 1.png` vs `slide 10.png`; desempate pelo filename mais longo
+- **Re-scan automático no `/img`** — arquivo que some da pasta depois do boot é re-escaneado; se sumiu mesmo, retorna **410 Gone** com diagnóstico (não mais 404 silencioso)
+- **Recovery de `config.json` corrompido** — server não crasha mais: faz backup em `config.bak.json`, loga o erro, sobe com config vazio
+- **Timeout em `list_dir`** — UNC lento ou share caído não bloqueia worker; `/admin/api/ls` devolve `timeout: true` após 3s
+- **Fallback CORS** — admin tenta CORS direto no vMix, se falhar cai pro proxy `/admin/api/vmix_xml` no próprio server
+- **Streaming de imagens** — slides de 30MB+ não carregam na RAM; `_send_file` usa `shutil.copyfileobj` em chunks de 64KB
+- **Logs com rotação** — arquivo `logs/YYYY-MM-DD.log` roda até 10MB, mantendo 5 backups
 
 ## Stack
 
@@ -138,6 +154,10 @@ Pastas podem ser absolutas ou relativas ao `config.json`. Aceita UNC (`\\servido
 | `/admin/api/ls` | GET | Sem `?path` → retorna drives + atalhos; com `?path=...` → lista subpastas com contagem de `imagens` e `subdirs` |
 | `/admin/api/health` | GET | Retorna diagnóstico por palestrante: `ok`, `guid_orfao`, `pasta_inacessivel`, `sem_imagens`, `filename_mismatch`, `vmix_offline` |
 | `/admin/api/validate?guid=&pasta=` | GET | Diagnóstico avulso (não precisa estar no config) — usado pelo botão "testar" do modal |
+| `/admin/api/clientes` | GET | IPs que fizeram `GET /state` nos últimos 30 s — pra saber quantos tablets estão assistindo |
+| `/admin/api/vmix_xml` | GET | Proxy do XML do vMix — fallback quando o browser não consegue fetchar o vMix direto (CORS/rede) |
+| `/admin/api/preview?pasta=...` | GET | Lista as imagens de uma pasta com URLs — alimenta o grid de miniaturas do modal |
+| `/admin/api/preview/img?pasta=&arq=` | GET | Serve uma imagem da pasta (com path traversal bloqueado) — pra miniatura + lightbox |
 
 ## Arquitetura de pastas
 
