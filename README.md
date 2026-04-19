@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.1.0 — funcional
+**Status:** ✅ v0.2.0 — validação stricta, badges de saúde, natural sort, suporte PNG/JPG/JPEG/BMP/GIF/WEBP
 
 ---
 
@@ -35,7 +35,7 @@ O vMix raramente joga o `Photos` direto no Program. O fluxo típico é: **Colour
 2. **Overlay interno** — Program é Colour composto? Varre `<overlay>` procurando um Photos registrado.
 3. **Overlay global** — alguma das 16 overlays globais (`<overlays><overlay number="N">key</overlay>`) aponta pra Photos ou Colour+Photos? Usa.
 
-Cruzamento com o filesystem: o `title` do vMix contém o filename atual (ex: `"SLIDE 001 - Wagner - slide 26.png"`) — match por substring contra os PNGs da pasta.
+Cruzamento com o filesystem: o `title` do vMix contém o filename atual (ex: `"SLIDE 001 - Wagner - slide 26.png"`) — match por substring contra as imagens da pasta. Formatos aceitos: **PNG, JPG, JPEG, BMP, GIF, WEBP** (os mesmos que o vMix aceita em inputs Photos/ImageList). Ordenação é **natural sort** — `slide 2.png` vem antes de `slide 10.png` mesmo sem zero-padding.
 
 ## Dashboard `/admin`
 
@@ -48,6 +48,9 @@ Interface web dinâmica que se atualiza a cada 500 ms com o estado do vMix:
   - Auto-preenchimento do nome a partir do `shortTitle` do input
   - **File browser estilo explorer**: drives do Windows + atalhos detectados (preset do vMix + pasta pai) + navegação livre com breadcrumb + botão "✓ usar esta pasta"
   - Auto-match de pasta por tokens do nome do slideshow (ex: shortTitle "003 - Vinícius" → sugere `…\Slides\003 - Vinícius`)
+- **Badges de saúde** em cada card: `✓ OK`, `⚠ GUID órfão`, `✕ Pasta inacessível`, `✕ Sem imagens`, `⚠ Filename não bate`, `⚠ vMix offline` — atualizadas a cada 500 ms
+- **Botão "🔍 testar"** no modal — valida GUID + pasta + filename contra o vMix atual antes de salvar, com check-list inline
+- **Validação stricta** no save: nomes vazios, GUIDs duplicados, pastas inexistentes, pastas sem imagens — todos rejeitados com mensagens estruturadas
 - **Edição inline** do nome via ✎ no card
 - **Persistência** no `config.json` com hot-reload em memória (sem restart do servidor)
 
@@ -74,6 +77,14 @@ python server.py
 ```
 
 Requer `config.json` em `src/` (copie `config.example.json` pra `src/config.json`).
+
+### Testes
+
+```bash
+python -m unittest discover tests/ -v
+```
+
+Suíte 100% stdlib (`unittest` + `tempfile`), sem dependência externa. Cobre: formatos de imagem, natural sort, validação de config, detecção de palestrante em overlay interno/global, diagnóstico por palestrante (`/health` e `/validate`).
 
 ### Produção (build do .exe)
 
@@ -122,9 +133,11 @@ Pastas podem ser absolutas ou relativas ao `config.json`. Aceita UNC (`\\servido
 | Endpoint | Método | Descrição |
 |---|---|---|
 | `/admin/api/config` | GET | Retorna `config.json` atual |
-| `/admin/api/config` | POST | Salva config + recarrega em memória |
+| `/admin/api/config` | POST | Valida e salva config + recarrega em memória. Retorna `400` com `erros: [...]` estruturados se houver problema (nome vazio, GUID duplicado, pasta inexistente, pasta sem imagens) |
 | `/admin/api/roots` | GET | Raízes detectadas (preset vMix + pasta pai + pasta do app + `config.roots`) |
-| `/admin/api/ls` | GET | Sem `?path` → retorna drives + atalhos; com `?path=...` → lista subpastas com contagem de PNGs |
+| `/admin/api/ls` | GET | Sem `?path` → retorna drives + atalhos; com `?path=...` → lista subpastas com contagem de `imagens` e `subdirs` |
+| `/admin/api/health` | GET | Retorna diagnóstico por palestrante: `ok`, `guid_orfao`, `pasta_inacessivel`, `sem_imagens`, `filename_mismatch`, `vmix_offline` |
+| `/admin/api/validate?guid=&pasta=` | GET | Diagnóstico avulso (não precisa estar no config) — usado pelo botão "testar" do modal |
 
 ## Arquitetura de pastas
 

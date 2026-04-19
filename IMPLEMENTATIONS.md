@@ -1,5 +1,41 @@
 # Implementations
 
+## v0.2.0 — 2026-04-19
+
+**Resumo:** release de robustez — config inválido não salva, cada card do dashboard mostra o estado real do palestrante, próximo slide não pula mais na ordem errada, e slides em JPG/JPEG/BMP/GIF/WEBP funcionam sem precisar renomear pra PNG. Coberto por 36 testes stdlib.
+
+**Backend (`src/server.py`, +300 linhas):**
+- `IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")` + helper `_is_image(p)`
+- `_natural_key(s)` — regex `(\d+)` para quebrar em tokens texto/número e converter numéricos pra int
+- `validar_config(cfg) -> list[str]` — checa tipos, campos obrigatórios, GUID duplicado case-insensitive, pasta no disco, presença de imagens aceitas. Retorna lista vazia = OK
+- `salvar_config(cfg)` passa por `validar_config` antes de escrever — levanta `ValueError("config_invalida", [erros])` quando inválido, mantendo `config.json` em disco inalterado
+- Helpers `_input_by_num`, `_input_by_key`, `_find_palestrante_em` extraídos do `compute_state` para uso pelo diagnóstico
+- `diagnosticar_palestrante(guid, nome, pasta, xml_root) -> dict` — status estruturado + detalhe legível + metadados (num_input, shorttitle, totais); trata caso `pasta=""` como `sem_pasta` (usado pelo `/validate`)
+- `diagnosticar_todos() -> list[dict]` — roda o diagnóstico para todos os palestrantes do config; se vMix offline, devolve lista com status `vmix_offline` para cada
+- Rotas novas: `GET /admin/api/health`, `GET /admin/api/validate?guid=&pasta=&nome=`
+- `_handle_admin_post` trata `ValueError("config_invalida", erros)` devolvendo `{ok:false, error:"config_invalida", erros:[...]}` status 400
+
+**Frontend (`src/admin.html`):**
+- `HEALTH_BY_GUID` — dicionário global alimentado pelo `/admin/api/health` a cada tick; `pollTick` faz fetch em paralelo com XML do vMix via `Promise.all`
+- `STATUS_META` — mapa `{status → {icone, label}}` pra renderização uniforme
+- `renderStatusRow(guid)` — bloco de badge + detalhe acima do "Input agora"
+- `testarPalestrante()` + `agendarTestar()` (debounce 400 ms) — chama `/admin/api/validate`, renderiza check-list colorida no bloco `#modal-diag`
+- `apiPost` agora preserva `err.detalhes` vindo do campo `erros` do servidor; `salvarPalestrante` renderiza os erros estruturados dentro do modal em vez de `alert()`
+- Todos os `pngs` → `imagens` no template e no JS (renderTree, matchFolderByTokens, inline use button, dataset attrs)
+- CSS novo: `.status-row`, `.status-badge.status-{ok,guid_orfao,pasta_inacessivel,sem_imagens,filename_mismatch,vmix_offline,sem_pasta}`, `.modal-diagnostic`, `.diag-check.{ok,fail,warn}`
+
+**Testes (`tests/`, stdlib `unittest`, 36 casos):**
+- `tests/conftest_helpers.py` — `make_images(path, nomes)` cria arquivos vazios; `fake_vmix_xml(inputs, active, overlays_global, preset)` monta XML minimal
+- `tests/test_filesystem.py` — IMAGE_EXTS, formatos mistos, natural sort com zero-pad e sem, case-insensitive, `list_dir` com campo `imagens`
+- `tests/test_config.py` — validação feliz e de erro (todas as regras), `salvar_config` não sobrescreve em caso de erro
+- `tests/test_vmix.py` — `compute_state` com Program direto/overlay interno/overlay global; `diagnosticar_palestrante` em 6 cenários; `diagnosticar_todos` mescla palestrantes bons e órfãos
+
+**Validação end-to-end contra vMix real do usuário:**
+- `/admin/api/health` retornou `ok` para Wagner + Vinícius com detalhe `"arquivo atual: slide 07.png (#7 de 50)"`
+- `/admin/api/validate` retornou `guid_orfao` para GUID inventado e `pasta_inacessivel` para `Z:\fake`
+- `POST /admin/api/config` com dados inválidos retornou `HTTP 400` + `erros` listando todos os problemas (nome vazio, pasta vazia, pasta inexistente, GUID duplicado)
+- `/admin/api/ls` listou pasta com 4 imagens mistas (.jpg, .jpeg, .webp, .bmp) retornando `imagens: 4`
+
 ## v0.1.0 — 2026-04-19
 
 **Resumo:** primeira release marcando o MVP completo — modo apresentador + dashboard administrativo integrados, ambos alimentados por polling ao vivo do vMix.
