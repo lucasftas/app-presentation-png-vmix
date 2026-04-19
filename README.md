@@ -1,118 +1,157 @@
 # app-presentation-png-vmix
 
-Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo slide** do palestrante ativo no Program.
+Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** 🚧 Alpha — ideia em captura
+**Status:** ✅ v0.1.0 — funcional
 
 ---
 
-## Proposta / Visão
+## Proposta
 
-Um serviço leve, portátil e sem instalação que resolve a ausência de *Presenter View* em transmissões ao vivo onde os slides são exibidos pelo vMix (e não pelo PowerPoint diretamente). O aplicativo faz polling na API do vMix, identifica o palestrante ativo (inclusive quando o slide aparece como overlay/layer de um input composto com câmera) e monta uma página web com o slide em exibição e o próximo, de forma que o palestrante tenha a mesma referência visual que teria num setup PowerPoint tradicional.
+Em lives onde os slides são projetados pelo vMix (PNGs dentro de inputs `Photos`/`ImageList`), o *Presenter View* nativo do PowerPoint não funciona — o palestrante não tem como ver o que vem a seguir. Esta app preenche essa lacuna: faz polling da API do vMix, identifica qual palestrante está ao vivo (inclusive quando o slide é layer de uma composição com câmera ou está em overlay global), cruza com os PNGs do filesystem e serve uma página web para tablet/notebook na mesa do palestrante.
 
-## Problema que resolve
+## Componentes
 
-Em lives, slides são projetados via vMix como PNGs dentro de inputs tipo `Photos`/`ImageList`. Nesse cenário, o *Presenter View* nativo do PowerPoint não funciona — o palestrante não tem como ver o que vem a seguir sem depender do operador ou de um monitor de confidence que só mostra o slide atual. A app preenche essa lacuna extraindo o estado do vMix em tempo real e servindo uma tela de apresentador adequada para tablet/notebook na mesa do palestrante.
+| URL | Finalidade | Quem usa |
+|---|---|---|
+| `http://<host>:5000/` | Modo apresentador (slide atual + próximo) | Palestrante — tablet/notebook |
+| `http://<host>:5000/admin` | Dashboard de configuração | Operador vMix |
+| `http://<host>:5000/state` | JSON com estado atual (integrações) | — |
+| `http://<host>:5000/admin/api/*` | API REST do dashboard | Dashboard (interno) |
 
-## Usuário-alvo
+## Fluxo do operador
 
-**Operador/diretor de vMix** responsável pela transmissão. Ele:
-- Configura os palestrantes do evento (GUIDs dos inputs + pastas de slides)
-- Abre o aplicativo na máquina que tem acesso ao vMix (mesma ou outra na rede local)
-- Disponibiliza o link `http://ip:5000/` para o palestrante acessar pelo tablet
+1. Copia a pasta da aplicação pra máquina escolhida (a do vMix ou outra na rede local)
+2. Dá duplo-clique em `apresentador.exe` → abre console + navegador
+3. Vai em `http://localhost:5000/admin` — vê **todos os inputs `Photos` do vMix atual** e **sugestões de pares** quando há Colour envelopando Photos (blanks camera+slides)
+4. Adiciona palestrantes com 1 clique: o dashboard auto-sugere o nome (do `shortTitle` do input) e faz auto-match de pasta pelos tokens do nome dentro dos drives/atalhos detectados
+5. Palestrante acessa `http://<ip-da-maquina>:5000/` pelo tablet — sincroniza em até 500 ms
 
-## Fluxo principal
+## Detecção do palestrante em 3 prioridades
 
-1. Operador copia a pasta da aplicação para a máquina escolhida (vMix ou outra na rede)
-2. Edita `config.json` com o IP do vMix e os palestrantes do evento (nome, GUID, pasta de slides)
-3. Dá duplo-clique em `apresentador.exe`
-4. A aplicação:
-   - Abre uma janela de console com o log
-   - Inicia um servidor HTTP local na porta `5000`
-   - Abre o navegador padrão em `http://localhost:5000/`
-5. Palestrante acessa `http://<ip-da-maquina>:5000/` pelo tablet na mesa
-6. Quando o operador coloca o input do palestrante (ou um input composto com ele como layer) em Program no vMix, a página sincroniza em até 500 ms mostrando slide atual + próximo
+O vMix raramente joga o `Photos` direto no Program. O fluxo típico é: **Colour composto (blank) com Photos em overlay → o blank vai pra Overlay global por cima da câmera**. A detecção respeita essa ordem:
 
-## Inputs e Outputs
+1. **Program direto** — input em Program é um Photos registrado? Usa.
+2. **Overlay interno** — Program é Colour composto? Varre `<overlay>` procurando um Photos registrado.
+3. **Overlay global** — alguma das 16 overlays globais (`<overlays><overlay number="N">key</overlay>`) aponta pra Photos ou Colour+Photos? Usa.
 
-**Inputs:**
-- API HTTP do vMix (`http://<vmix-host>:8088/api`) — XML com estado dos inputs, Program, Preview e overlays
-- Pasta(s) locais com PNGs dos slides (uma por palestrante)
-- `config.json` com IP do vMix + lista de palestrantes (GUID → pasta)
+Cruzamento com o filesystem: o `title` do vMix contém o filename atual (ex: `"SLIDE 001 - Wagner - slide 26.png"`) — match por substring contra os PNGs da pasta.
 
-**Outputs:**
-- Página web em `http://localhost:5000/` com:
-  - Slide **atual** (menor, borda vermelha, à esquerda)
-  - Slide **próximo** (maior, borda amarela, à direita)
-  - Rodapé com nome do palestrante + "Slide X de Y"
-  - Barra de progresso baseada na posição dentro da apresentação
-- Endpoint `GET /state` retornando JSON com estado atual (útil para integrações futuras)
+## Dashboard `/admin`
 
-## Stack e arquitetura
+Interface web dinâmica que se atualiza a cada 500 ms com o estado do vMix:
 
-- **Linguagem:** Python 3.11+ (stdlib pura — sem dependências externas)
+- **Cards dos palestrantes configurados** com slide atual, filename, barra de progresso e destaque vermelho quando ao vivo
+- **Sugestões automáticas** de pares blank ↔ slideshow detectados
+- **Lista de inputs** agrupada por tipo (Photos / Blanks compostos / Todos)
+- **Modal adicionar/editar** com:
+  - Auto-preenchimento do nome a partir do `shortTitle` do input
+  - **File browser estilo explorer**: drives do Windows + atalhos detectados (preset do vMix + pasta pai) + navegação livre com breadcrumb + botão "✓ usar esta pasta"
+  - Auto-match de pasta por tokens do nome do slideshow (ex: shortTitle "003 - Vinícius" → sugere `…\Slides\003 - Vinícius`)
+- **Edição inline** do nome via ✎ no card
+- **Persistência** no `config.json` com hot-reload em memória (sem restart do servidor)
+
+Números de input exibidos com box padronizado e padding de 2 dígitos (`05`, `07`, `89`) — todos lidos ao vivo do vMix, então se você reordenar/renomear inputs lá, o dashboard atualiza sozinho. O **GUID** é a chave estável persistida no config.
+
+## Stack
+
+- **Linguagem:** Python 3.11+ (**stdlib pura** — zero dependências de runtime)
 - **Servidor HTTP:** `http.server` + `socketserver.ThreadingMixIn`
 - **Cliente vMix:** `urllib.request` + `xml.etree.ElementTree`
 - **Frontend:** HTML/CSS/JS vanilla (sem build step, sem framework)
 - **Empacotamento:** PyInstaller `--onefile` → `apresentador.exe` (~8 MB)
-- **Plataforma alvo:** Windows (onde o vMix roda). Funciona em qualquer máquina da rede local do vMix.
+- **Plataforma alvo:** Windows 10/11 com vMix 29+ acessível na rede (porta 8088)
 
 **Por que stdlib pura:** zero `pip install` na máquina do operador, .exe pequeno, menos superfície de falha em ambiente de live.
 
-## Integrações externas
+## Como rodar
 
-- **vMix HTTP API** — consulta XML a cada 500 ms para detectar input ativo em Program e suas overlays
-- Nenhuma outra integração (sem dependências de nuvem, sem telemetria)
+### Desenvolvimento
 
-## Escopo do MVP (v0.1.0)
+```bash
+cd src
+python server.py
+```
 
-- [x] Polling da API do vMix na porta 8088 (configurável via `config.json`)
-- [x] Detecção do palestrante ativo quando o input está **direto em Program**
-- [x] Detecção quando o palestrante está em **overlay/layer de um input composto** (ex: "SLIDES WAGNER + CAM" em Program com Wagner como layer 2)
-- [x] Cruzamento do `title` do vMix com a lista de PNGs do filesystem para identificar slide atual + próximo
-- [x] Layout web com slide atual menor (vermelho) e próximo maior (amarelo), proporção 16:9 em ambos
-- [x] Rodapé com nome do palestrante + "Slide X de Y" + barra de progresso
-- [x] Empacotamento como `.exe` single-file
-- [x] Configuração via `config.json` externo editável na mão
+Requer `config.json` em `src/` (copie `config.example.json` pra `src/config.json`).
 
-### Exemplo de config.json
+### Produção (build do .exe)
+
+```bash
+pip install pyinstaller
+scripts\build.bat
+```
+
+Gera `dist/apresentador.exe` + copia `index.html`, `admin.html` e `config.example.json` ao lado. Distribuir a pasta `dist/` inteira pra máquina do evento.
+
+## Configuração — `config.json`
 
 ```json
 {
   "vmix": {
-    "host": "192.168.X.X",
+    "host": "localhost",
     "port": 8088
   },
   "server_port": 5000,
-  "palestrantes": [
-    {
-      "nome": "Wagner",
-      "guid": "51f89804-b46f-4716-8914-4f692c63c38c",
-      "pasta": "001 - Wagner"
-    },
-    {
-      "nome": "Vinicius",
-      "guid": "1cb3e57a-b400-4751-8c16-a5d5a88dfe03",
-      "pasta": "003 - Vinícius"
-    },
-    {
-      "nome": "Camila",
-      "guid": "fc56787d-71c7-4708-bb14-e75ac2c70e46",
-      "pasta": "004 - Camila"
-    }
-  ]
+  "roots": [
+    "\\\\vmix\\4TB\\Live Jornada Full Face\\Slides",
+    "D:\\Slides"
+  ],
+  "palestrantes": []
 }
 ```
 
-O caminho da pasta de slides é **relativo** à pasta onde o `.exe` está sendo executado (tipicamente dentro da pasta do evento). PNGs são ordenados alfabeticamente dentro de cada pasta.
+- **`vmix.host`**: IP/hostname da máquina com vMix
+- **`roots`**: pastas extras para aparecer como atalhos no file browser do dashboard. Opcional — o preset do vMix e sua pasta pai já viram atalhos automaticamente
+- **`palestrantes`**: começa vazio. O dashboard preenche conforme você adiciona
 
-## Fora de escopo (MVP)
+Cada palestrante fica com:
+
+```json
+{
+  "nome": "Wagner",
+  "guid": "51f89804-b46f-4716-8914-4f692c63c38c",
+  "pasta": "D:\\Slides\\001 - Wagner"
+}
+```
+
+Pastas podem ser absolutas ou relativas ao `config.json`. Aceita UNC (`\\servidor\share\...`).
+
+## API REST (`/admin/api`)
+
+| Endpoint | Método | Descrição |
+|---|---|---|
+| `/admin/api/config` | GET | Retorna `config.json` atual |
+| `/admin/api/config` | POST | Salva config + recarrega em memória |
+| `/admin/api/roots` | GET | Raízes detectadas (preset vMix + pasta pai + pasta do app + `config.roots`) |
+| `/admin/api/ls` | GET | Sem `?path` → retorna drives + atalhos; com `?path=...` → lista subpastas com contagem de PNGs |
+
+## Arquitetura de pastas
+
+```
+app-presentation-png-vmix/
+├── src/
+│   ├── server.py          # Servidor HTTP + cliente vMix + API admin (~460 linhas)
+│   ├── index.html         # Modo apresentador (palestrante)
+│   └── admin.html         # Dashboard (operador)
+├── scripts/
+│   └── build.bat          # PyInstaller --onefile
+├── config.example.json    # Template de configuração
+├── CHANGELOG.md
+├── IMPLEMENTATIONS.md
+├── OPERATIONS.md
+├── CLAUDE.md
+└── README.md
+```
+
+## Fora de escopo (v0.1.0)
 
 - **Controle ativo do vMix** (Next/Prev slide pela interface web) — a app é monitor passivo
-- **GUI de configuração** — v0.1.0 configura apenas via JSON editado à mão; uma interface de setup web pode vir em versões futuras
-- Suporte a tipos de input além de `Photos`/`ImageList` (PowerPoint input, VirtualSet, vídeos)
-- Anotações, timer, chat ou demais recursos de um *presenter view* completo
-- Customização de tema/cores via config
+- **Multi-instância de vMix** (vários PCs com vMix no mesmo painel) — previsto em versões futuras
+- **Scan automático de rede** pra descobrir vMix — previsto
+- **Suporte a inputs PowerPoint / VirtualSet / vídeos** como fonte de slides (apenas `Photos`/`ImageList` por ora)
+- **Anotações, timer, chat** — não faz parte da proposta
+- **Customização de tema** via config
 
 ## Referências
 
