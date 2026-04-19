@@ -140,6 +140,24 @@
   }
   .status-overlay.show { opacity: 1; }
   .status-overlay.erro { background: #b00020; }
+
+  /* Banner vermelho fixo quando vMix offline — alerta pro palestrante */
+  .offline-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #b00020;
+    color: #fff;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    z-index: 20;
+    display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .offline-banner.show { display: block; }
 </style>
 </head>
 <body>
@@ -173,6 +191,7 @@
   <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
 </div>
 
+<div class="offline-banner" id="offline-banner">🔴 Sem conexão com o vMix — aguarde o operador restaurar</div>
 <div class="status-overlay" id="status"></div>
 
 <script>
@@ -189,6 +208,14 @@ const statusEl = $('status');
 
 let lastAtualUrl = null;
 let lastProximoUrl = null;
+let offlineStreak = 0;
+const offlineBanner = $('offline-banner');
+
+function atualizarOfflineBanner(estaOffline) {
+  if (estaOffline) offlineStreak++;
+  else offlineStreak = 0;
+  offlineBanner.classList.toggle('show', offlineStreak >= 3);
+}
 
 function showStatus(msg, erro = false) {
   statusEl.textContent = msg;
@@ -223,8 +250,11 @@ async function tick() {
 
     if (!s.ok) {
       showStatus(s.erro || 'Erro desconhecido', true);
+      atualizarOfflineBanner(true);
       return;
     }
+
+    atualizarOfflineBanner(false);
 
     if (!s.ativo) {
       showStatus(s.mensagem || 'Aguardando palestrante...');
@@ -248,6 +278,7 @@ async function tick() {
     progressFill.style.width = pct + '%';
   } catch (e) {
     showStatus('Sem conexão com o servidor', true);
+    atualizarOfflineBanner(true);
   }
 }
 

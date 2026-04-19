@@ -39,6 +39,45 @@ def _xml_to_element(xml_str: str) -> ET.Element:
     return ET.fromstring(xml_str)
 
 
+class MatchFilenameTests(unittest.TestCase):
+    """Fase 1: match ancorado resolve ambiguidade slide 1 vs slide 10."""
+
+    def test_match_exato_vence_substring(self):
+        imagens = ["slide 1.png", "slide 10.png"]
+        title = "PNG SLIDE Wagner - slide 10.png"
+        idx = server.match_filename(title, imagens)
+        self.assertEqual(idx, 1)  # slide 10
+
+    def test_match_slide_1_quando_title_tem_slide_1(self):
+        imagens = ["slide 1.png", "slide 10.png"]
+        title = "PNG SLIDE Wagner - slide 1.png"
+        idx = server.match_filename(title, imagens)
+        self.assertEqual(idx, 0)  # slide 1
+
+    def test_match_acento(self):
+        imagens = ["introdução 01.jpg", "demonstração 02.jpg"]
+        title = "PRESET - introdução 01.jpg"
+        idx = server.match_filename(title, imagens)
+        self.assertEqual(idx, 0)
+
+    def test_match_suffix_case_insensitive(self):
+        imagens = ["slide 05.png"]
+        title = "foo - SLIDE 05.PNG"
+        idx = server.match_filename(title, imagens)
+        self.assertEqual(idx, 0)
+
+    def test_match_nenhum_retorna_none(self):
+        imagens = ["slide 01.png", "slide 02.png"]
+        title = "completamente fora do padrao"
+        self.assertIsNone(server.match_filename(title, imagens))
+
+    def test_match_escolhe_mais_longo_em_caso_de_empate(self):
+        imagens = ["a.png", "longo-a.png"]
+        title = "prefix - longo-a.png"
+        idx = server.match_filename(title, imagens)
+        self.assertEqual(idx, 1)  # longo-a.png (mais especifico)
+
+
 class ComputeStateTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -171,6 +210,34 @@ class HealthEndpointTests(unittest.TestCase):
         por_guid = {d["guid"]: d["status"] for d in resultado}
         self.assertEqual(por_guid[WAGNER_GUID], "ok")
         self.assertEqual(por_guid["guid-fantasma"], "guid_orfao")
+
+
+class ClientesConectadosTests(unittest.TestCase):
+    """Fase 4: rastrear IPs que fizeram GET /state recentemente."""
+
+    def setUp(self):
+        # Limpa estado global entre testes
+        server._CLIENTES.clear()
+
+    def test_registrar_cliente_adiciona_com_timestamp(self):
+        server.registrar_cliente("192.168.1.10")
+        self.assertIn("192.168.1.10", server._CLIENTES)
+        self.assertGreater(server._CLIENTES["192.168.1.10"], 0)
+
+    def test_clientes_ativos_retorna_dentro_da_janela(self):
+        import time
+        server.registrar_cliente("10.0.0.1")
+        server.registrar_cliente("10.0.0.2")
+        ativos = server.clientes_ativos(janela_s=30)
+        self.assertEqual(len(ativos), 2)
+        ips = {c["ip"] for c in ativos}
+        self.assertEqual(ips, {"10.0.0.1", "10.0.0.2"})
+
+    def test_clientes_ativos_expira_apos_janela(self):
+        import time
+        server._CLIENTES["antigo"] = time.time() - 60  # 60s atras
+        ativos = server.clientes_ativos(janela_s=30)
+        self.assertNotIn("antigo", [c["ip"] for c in ativos])
 
 
 if __name__ == "__main__":

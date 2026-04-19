@@ -1,4 +1,4 @@
-"""Testes da validacao do POST /admin/api/config."""
+"""Testes da validacao do POST /admin/api/config + recovery."""
 from __future__ import annotations
 
 import json
@@ -142,6 +142,36 @@ class SalvarConfigTests(unittest.TestCase):
             erros = e.args[1]
             self.assertIsInstance(erros, list)
             self.assertTrue(len(erros) >= 2)
+
+
+class CarregarConfigRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self._orig = server.CONFIG_PATH
+
+    def tearDown(self):
+        server.CONFIG_PATH = self._orig
+        self.tmp.cleanup()
+
+    def test_arquivo_ausente_retorna_default(self):
+        server.CONFIG_PATH = self.root / "nao_existe.json"
+        cfg = server.carregar_config()
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg.get("palestrantes", []), [])
+        self.assertIn("vmix", cfg)
+
+    def test_corrompido_faz_backup_e_recupera(self):
+        p = self.root / "config.json"
+        p.write_text("{ nao e json valido", encoding="utf-8")
+        server.CONFIG_PATH = p
+        cfg = server.carregar_config()
+        # Config vazia default retornada
+        self.assertEqual(cfg.get("palestrantes", []), [])
+        # Backup criado ao lado
+        backup = self.root / "config.bak.json"
+        self.assertTrue(backup.is_file(), "deveria ter criado config.bak.json")
+        self.assertIn("nao e json", backup.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

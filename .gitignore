@@ -24,3 +24,8 @@ Thumbs.db
 # Logs
 logs/
 *.log
+*.log.*
+
+# Backup de config corrompido (criado pelo recovery)
+config.bak.json
+src/config.bak.json

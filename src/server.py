@@ -11,8 +11,12 @@ Sem dependencias externas - stdlib pura. Requer Python 3.9+.
 """
 from __future__ import annotations
 
+import concurrent.futures
+import datetime as _dt
 import http.server
 import json
+import logging
+import logging.handlers
 import mimetypes
 import re
 import socketserver
@@ -47,6 +51,34 @@ def _natural_key(s: str) -> list:
 def _is_image(p: Path) -> bool:
     return p.suffix.lower() in IMAGE_EXTS
 
+
+def match_filename(title: str, imagens: list[str]) -> int | None:
+    """Procura qual elemento de `imagens` corresponde ao filename dentro de `title`.
+
+    Estrategia (em ordem de prioridade):
+    1. Match exato: filename inteiro presente no title (case-insensitive no suffix)
+    2. Em caso de empate, escolhe o filename mais longo (mais especifico)
+
+    Isso resolve ambiguidades tipo `slide 1.png` vs `slide 10.png` quando o
+    title e `"... slide 10.png"` — antes bateria nos dois via substring.
+    """
+    if not title or not imagens:
+        return None
+
+    title_fold = title.casefold()
+    # Casefold pro title; pra cada imagem, busca match exato
+    matches: list[tuple[int, int, str]] = []  # (idx, length, nome)
+    for i, nome in enumerate(imagens):
+        if nome.casefold() in title_fold:
+            matches.append((i, len(nome), nome))
+
+    if not matches:
+        return None
+
+    # Desempate: maior comprimento primeiro (mais especifico)
+    matches.sort(key=lambda t: -t[1])
+    return matches[0][0]
+
 # -------------------- Localizacao --------------------
 
 def app_dir() -> Path:
@@ -59,22 +91,112 @@ APP_DIR = app_dir()
 CONFIG_PATH = APP_DIR / "config.json"
 INDEX_PATH = APP_DIR / "index.html"
 ADMIN_PATH = APP_DIR / "admin.html"
+LOG_DIR = APP_DIR / "logs"
+
+logger = logging.getLogger("apresentador")
+
+
+def setup_logging(verbose: bool = True) -> None:
+    """Configura logging para console + arquivo em logs/YYYY-MM-DD.log.
+
+    Arquivo rotaciona automaticamente ao passar de 10MB (max 5 arquivos).
+    """
+    if logger.handlers:
+        return  # ja configurado (ex: em testes)
+    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
+
+    if verbose:
+        ch = logging.StreamHandler(sys.stderr)
+        ch.setFormatter(fmt)
+        logger.addHandler(ch)
+
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+        hoje = _dt.date.today().isoformat()
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_DIR / f"{hoje}.log",
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except OSError as e:
+        print(f"[aviso] nao foi possivel criar log em arquivo: {e}", file=sys.stderr)
 
 _cfg_lock = threading.Lock()
+_clientes_lock = threading.Lock()
+# IP → timestamp Unix do ultimo GET /state; registra quem esta assistindo
+_CLIENTES: dict[str, float] = {}
+
+
+def registrar_cliente(ip: str) -> None:
+    if not ip:
+        return
+    with _clientes_lock:
+        _CLIENTES[ip] = time.time()
+
+
+def clientes_ativos(janela_s: int = 30) -> list[dict]:
+    """Retorna lista de clientes com hit nos ultimos `janela_s` segundos."""
+    agora = time.time()
+    out: list[dict] = []
+    with _clientes_lock:
+        for ip, ts in list(_CLIENTES.items()):
+            if agora - ts > janela_s:
+                # GC de entries muito antigas (>5min)
+                if agora - ts > 300:
+                    _CLIENTES.pop(ip, None)
+                continue
+            out.append({
+                "ip": ip,
+                "ultimo_hit_s": round(agora - ts, 1),
+            })
+    out.sort(key=lambda c: c["ultimo_hit_s"])
+    return out
 
 # -------------------- Config --------------------
 
+def _config_default() -> dict:
+    return {
+        "vmix": {"host": "localhost", "port": 8088},
+        "server_port": 5000,
+        "palestrantes": [],
+    }
+
+
 def carregar_config() -> dict:
+    """Carrega config.json com recovery automatico.
+
+    Casos tratados:
+    - arquivo ausente: retorna default (cria em disco ao primeiro save)
+    - JSON corrompido: faz backup em config.bak.json, loga aviso, retorna default
+    - erro inesperado de IO: retorna default para nao derrubar o server
+    """
     if not CONFIG_PATH.is_file():
-        exemplo = APP_DIR / "config.example.json"
-        print(f"[ERRO] config.json nao encontrado em: {CONFIG_PATH}", file=sys.stderr)
-        if exemplo.is_file():
-            print(f"       Copie '{exemplo.name}' para 'config.json' e edite com seus dados.",
+        print(f"[aviso] config.json nao encontrado em {CONFIG_PATH} — "
+              f"iniciando com config vazia. Use /admin para configurar.",
+              file=sys.stderr)
+        return _config_default()
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        backup = CONFIG_PATH.with_suffix(".bak.json")
+        try:
+            CONFIG_PATH.replace(backup)
+            print(f"[ERRO] config.json corrompido ({e}) — "
+                  f"movido para {backup.name}, iniciando com config vazia.",
                   file=sys.stderr)
-        input("\nPressione ENTER para sair...")
-        sys.exit(1)
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        except OSError as move_err:
+            print(f"[ERRO] config.json corrompido e nao consegui fazer backup: {move_err}",
+                  file=sys.stderr)
+        return _config_default()
+    except OSError as e:
+        print(f"[ERRO] falha lendo config.json: {e} — usando config vazia",
+              file=sys.stderr)
+        return _config_default()
 
 
 def carregar_palestrantes(cfg: dict) -> dict:
@@ -184,6 +306,32 @@ def validar_config(new_cfg: dict) -> list[str]:
     return erros
 
 
+def rescan_pasta(guid: str) -> list[str]:
+    """Re-le o filesystem da pasta de um palestrante e atualiza PALESTRANTES.
+
+    Retorna a nova lista de arquivos de imagem (ordenacao natural), ou [] se
+    o GUID nao esta em PALESTRANTES ou a pasta nao existe mais.
+    """
+    global PALESTRANTES
+    g = (guid or "").lower().strip()
+    info = PALESTRANTES.get(g)
+    if info is None:
+        return []
+    nome, pasta_path, _ = info
+    if not pasta_path.is_dir():
+        return []
+    try:
+        imagens = sorted(
+            (x.name for x in pasta_path.iterdir() if x.is_file() and _is_image(x)),
+            key=_natural_key,
+        )
+    except (PermissionError, OSError):
+        return []
+    with _cfg_lock:
+        PALESTRANTES[g] = (nome, pasta_path, imagens)
+    return imagens
+
+
 def salvar_config(new_cfg: dict) -> None:
     """Valida, escreve config.json atomicamente e recarrega estado em memoria.
 
@@ -273,12 +421,12 @@ def list_drives() -> list[dict]:
     return out
 
 
-def list_dir(path_str: str) -> dict:
-    """Lista subpastas (com contagem de imagens) dentro de `path_str`.
-    Sem restricao de raiz: app roda local para operador do evento.
+def listar_preview(path_str: str) -> dict:
+    """Lista imagens dentro de `path_str` com URLs servidas por /admin/api/preview/img.
 
-    Cada item retorna {name, path, imagens, subdirs}. `imagens` conta arquivos
-    nos formatos de IMAGE_EXTS.
+    Usado pelo grid de miniaturas do modal de adicionar palestrante:
+    o operador ve todas as imagens pra confirmar visualmente que a pasta
+    e do palestrante correspondente antes de salvar.
     """
     target = _safe_resolve(path_str)
     if not target.is_dir():
@@ -286,8 +434,55 @@ def list_dir(path_str: str) -> dict:
 
     items: list[dict] = []
     try:
+        nomes = sorted(
+            (x.name for x in target.iterdir() if x.is_file() and _is_image(x)),
+            key=_natural_key,
+        )
+    except (PermissionError, OSError) as e:
+        raise PermissionError(f"Sem acesso a pasta: {e}")
+
+    pasta_enc = urllib.parse.quote(str(target), safe="")
+    for nome in nomes:
+        arq_enc = urllib.parse.quote(nome, safe="")
+        items.append({
+            "name": nome,
+            "url": f"/admin/api/preview/img?pasta={pasta_enc}&arq={arq_enc}",
+        })
+    return {"path": str(target), "total": len(items), "items": items}
+
+
+def preview_img_path(pasta_str: str, arq: str) -> Path:
+    """Resolve path seguro para servir uma imagem de preview.
+
+    Levanta PermissionError em tentativa de path traversal,
+    FileNotFoundError se arquivo nao existe.
+    """
+    pasta = _safe_resolve(pasta_str)
+    if not pasta.is_dir():
+        raise FileNotFoundError(f"Pasta nao existe: {pasta}")
+    candidate = (pasta / arq).resolve()
+    try:
+        candidate.relative_to(pasta)
+    except ValueError:
+        raise PermissionError(f"path traversal bloqueado: {arq}")
+    if not candidate.is_file():
+        raise FileNotFoundError(f"Arquivo nao existe: {candidate.name}")
+    if not _is_image(candidate):
+        raise PermissionError(f"Nao e imagem: {candidate.name}")
+    return candidate
+
+
+_LS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="list_dir"
+)
+
+
+def _list_dir_work(target: Path) -> list[dict]:
+    """Trabalho bruto de listar subpastas — executado dentro do ThreadPoolExecutor."""
+    items: list[dict] = []
+    try:
         children = sorted(target.iterdir(), key=lambda p: _natural_key(p.name))
-    except PermissionError:
+    except (PermissionError, OSError):
         children = []
 
     for child in children:
@@ -314,7 +509,27 @@ def list_dir(path_str: str) -> dict:
             })
         except (PermissionError, OSError):
             continue
+    return items
 
+
+def list_dir(path_str: str, timeout: float = 3.0) -> dict:
+    """Lista subpastas (com contagem de imagens) dentro de `path_str`.
+
+    Sem restricao de raiz: app roda local para operador do evento.
+    Protegido por timeout (default 3s) — UNC lento/caido nao trava worker.
+
+    Cada item retorna {name, path, imagens, subdirs}. Se deu timeout,
+    retorna {path, items: [], timeout: True}.
+    """
+    target = _safe_resolve(path_str)
+    if not target.is_dir():
+        raise FileNotFoundError(f"Nao e uma pasta: {target}")
+
+    future = _LS_EXECUTOR.submit(_list_dir_work, target)
+    try:
+        items = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        return {"path": str(target), "items": [], "timeout": True}
     return {"path": str(target), "items": items}
 
 # -------------------- compute_state --------------------
@@ -395,8 +610,8 @@ def compute_state() -> dict:
     nome, pasta_path, slides = PALESTRANTES[guid]
     title = input_palestrante.get("title", "")
 
-    # title do vMix contem o nome do arquivo atual (ex: "... slide 26.png")
-    idx = next((i for i, s in enumerate(slides) if s in title), None)
+    # Match ancorado: filename exato dentro do title, desempate pelo mais longo
+    idx = match_filename(title, slides)
     if idx is None:
         return {
             "ok": True, "ativo": False, "palestrante": nome,
@@ -498,7 +713,7 @@ def diagnosticar_palestrante(
         return out
 
     title = inp.get("title") or ""
-    idx = next((i for i, s in enumerate(imagens) if s in title), None)
+    idx = match_filename(title, imagens)
     if idx is None:
         out["status"] = "filename_mismatch"
         out["detalhe"] = (
@@ -546,9 +761,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # (/ls, GET /config). POST /config continua visivel porque e escrita.
         if ("/state" in s or "/admin/api/ls" in s
                 or "/admin/api/health" in s
+                or "/admin/api/clientes" in s
+                or "/admin/api/vmix_xml" in s
+                or "/admin/api/preview" in s
                 or "GET /admin/api/config" in s):
             return
-        super().log_message(fmt, *args)
+        # Encaminha pro logger (console + arquivo com rotacao)
+        if logger.handlers:
+            logger.info("%s - %s", self.address_string(), s)
+        else:
+            super().log_message(fmt, *args)
 
     def _send_json(self, obj: dict, status: int = 200) -> None:
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -560,18 +782,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_file(self, path: Path, content_type: str | None = None, cache: bool = True) -> None:
+        """Serve arquivo em streaming (64KB chunks) — nao carrega tudo em RAM.
+
+        Fase 5: importante para slides grandes (20-50MB) com multiplos clientes.
+        """
         if not path.is_file():
             self.send_error(404)
             return
-        data = path.read_bytes()
+        try:
+            size = path.stat().st_size
+        except OSError:
+            self.send_error(404)
+            return
         if content_type is None:
             content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", "public, max-age=300" if cache else "no-store")
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            with open(path, "rb") as f:
+                import shutil as _sh
+                _sh.copyfileobj(f, self.wfile, length=64 * 1024)
+        except (BrokenPipeError, ConnectionResetError):
+            # Cliente fechou conexao no meio da transferencia — normal
+            return
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -582,6 +818,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/state":
+            registrar_cliente(self.client_address[0] if self.client_address else "")
             self._send_json(compute_state())
             return
 
@@ -616,6 +853,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except ValueError:
                 self.send_error(403)
                 return
+            # Fase 2: se arquivo sumiu depois do load, re-escaneia antes de 404
+            if not candidate.is_file():
+                rescan_pasta(guid)
+                if not candidate.is_file():
+                    self._send_json({
+                        "error": "arquivo_removido",
+                        "detalhe": f"'{arq}' nao existe mais na pasta do palestrante",
+                    }, status=410)
+                    return
             self._send_file(candidate)
             return
 
@@ -675,6 +921,62 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"error": str(e)}, status=500)
             return
 
+        if sub == "clientes":
+            self._send_json({"clientes": clientes_ativos(janela_s=30)})
+            return
+
+        if sub == "vmix_xml":
+            # Proxy do XML bruto do vMix — fallback pro admin quando CORS
+            # direto nao funciona (vMix em outra maquina, rede restrita etc).
+            try:
+                url = f"http://{VMIX_HOST}:{VMIX_PORT}/api"
+                with urllib.request.urlopen(url, timeout=3) as resp:
+                    data = resp.read()
+            except Exception as e:
+                self._send_json({"error": f"vMix inacessivel: {e}"}, status=502)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        if sub == "preview":
+            qs = urllib.parse.parse_qs(query)
+            p = qs.get("pasta", [""])[0].strip()
+            if not p:
+                self._send_json({"error": "parametro 'pasta' obrigatorio"}, status=400)
+                return
+            try:
+                self._send_json(listar_preview(p))
+            except FileNotFoundError as e:
+                self._send_json({"error": str(e)}, status=404)
+            except PermissionError as e:
+                self._send_json({"error": str(e)}, status=403)
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if sub == "preview/img":
+            qs = urllib.parse.parse_qs(query)
+            p = qs.get("pasta", [""])[0].strip()
+            arq = qs.get("arq", [""])[0].strip()
+            if not p or not arq:
+                self.send_error(400)
+                return
+            try:
+                caminho = preview_img_path(p, arq)
+            except FileNotFoundError:
+                self.send_error(404)
+                return
+            except PermissionError:
+                self.send_error(403)
+                return
+            self._send_file(caminho)
+            return
+
         if sub == "validate":
             qs = urllib.parse.parse_qs(query)
             guid = qs.get("guid", [""])[0].strip()
@@ -731,12 +1033,14 @@ class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def main() -> None:
+    setup_logging(verbose=True)
     print("=" * 60)
     print("  Modo Apresentador - app-presentation-png-vmix")
     print(f"  vMix:   http://{VMIX_HOST}:{VMIX_PORT}/api")
     print(f"  Live:   http://localhost:{SERVER_PORT}/")
     print(f"  Admin:  http://localhost:{SERVER_PORT}/admin")
     print(f"  App:    {APP_DIR}")
+    print(f"  Logs:   {LOG_DIR}")
     print("=" * 60)
     if PALESTRANTES:
         print("  Palestrantes carregados:")
