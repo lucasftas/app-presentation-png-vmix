@@ -240,5 +240,122 @@ class ClientesConectadosTests(unittest.TestCase):
         self.assertNotIn("antigo", [c["ip"] for c in ativos])
 
 
+class PreviewPalestranteTests(unittest.TestCase):
+    """Fase v0.5: /state expoe preview_palestrante quando vMix tem outro
+    palestrante em Preview (operador prestes a cortar pra ele)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.pasta_wag = Path(self.tmp.name) / "wag"
+        self.pasta_vin = Path(self.tmp.name) / "vin"
+        make_images(self.pasta_wag, [f"slide {i:02d}.png" for i in range(1, 50)])
+        make_images(self.pasta_vin, [f"slide {i:02d}.png" for i in range(1, 34)])
+
+        self._pal_orig = server.PALESTRANTES
+        self._cfg_orig = server.CFG
+        server.PALESTRANTES = {
+            WAGNER_GUID: ("Wagner", self.pasta_wag,
+                          sorted(p.name for p in self.pasta_wag.iterdir())),
+            VINI_GUID: ("Vinicius", self.pasta_vin,
+                        sorted(p.name for p in self.pasta_vin.iterdir())),
+        }
+        # Reseta CFG pra nao herdar ui_prefs de config.json real
+        server.CFG = {"vmix": {}, "server_port": 5000, "palestrantes": []}
+
+    def tearDown(self):
+        server.PALESTRANTES = self._pal_orig
+        server.CFG = self._cfg_orig
+        self.tmp.cleanup()
+
+    def _xml_com_preview(self, active_num, preview_num):
+        inputs = [
+            {"key": WAGNER_GUID, "num": 60, "type": "Photos",
+             "title": "Wagner - slide 07.png", "shortTitle": "Wagner",
+             "selectedIndex": 7, "duration": 49},
+            {"key": VINI_GUID, "num": 71, "type": "Photos",
+             "title": "Vinicius - slide 01.png", "shortTitle": "Vinicius",
+             "selectedIndex": 1, "duration": 33},
+            {"key": "cam1", "num": 10, "type": "Camera", "title": "CAM 1"},
+        ]
+        xml = fake_vmix_xml(inputs, active_num=active_num)
+        # Injeta <preview>N</preview> manualmente
+        xml = xml.replace("<active>", f"<preview>{preview_num}</preview><active>")
+        return _xml_to_element(xml)
+
+    def test_preview_palestrante_diferente_do_ativo(self):
+        # Program = camera, Preview = Vinicius
+        xml = self._xml_com_preview(active_num=10, preview_num=71)
+        with mock.patch.object(server, "fetch_vmix_xml", return_value=xml):
+            r = server.compute_state()
+        self.assertEqual(r.get("preview_palestrante"), "Vinicius")
+
+    def test_preview_igual_ao_ativo_retorna_none(self):
+        # Program = Wagner, Preview = Wagner — nao faz sentido mostrar
+        xml = self._xml_com_preview(active_num=60, preview_num=60)
+        with mock.patch.object(server, "fetch_vmix_xml", return_value=xml):
+            r = server.compute_state()
+        self.assertIsNone(r.get("preview_palestrante"))
+
+    def test_preview_nao_palestrante_retorna_none(self):
+        # Preview aponta pra camera (nao e palestrante)
+        xml = self._xml_com_preview(active_num=60, preview_num=10)
+        with mock.patch.object(server, "fetch_vmix_xml", return_value=xml):
+            r = server.compute_state()
+        self.assertIsNone(r.get("preview_palestrante"))
+
+    def test_state_inclui_ui_prefs_default(self):
+        xml = self._xml_com_preview(active_num=10, preview_num=10)
+        with mock.patch.object(server, "fetch_vmix_xml", return_value=xml):
+            r = server.compute_state()
+        self.assertIn("ui_prefs", r)
+        self.assertEqual(r["ui_prefs"]["split_ratio"], 38)
+
+
+class VmixControlTests(unittest.TestCase):
+    """Fase v0.6: controle do vMix a partir do index (next/prev/goto/reset)."""
+
+    def _mock_urlopen(self):
+        """Retorna context manager que fingi HTTP 200."""
+        m = mock.MagicMock()
+        m.__enter__.return_value.status = 200
+        m.__exit__.return_value = None
+        return m
+
+    def test_next_picture_chama_url_correta(self):
+        with mock.patch("urllib.request.urlopen") as mo:
+            mo.return_value = self._mock_urlopen()
+            r = server.vmix_control("NextPicture", "abc-123")
+        self.assertTrue(r["ok"])
+        url = mo.call_args[0][0]
+        self.assertIn("Function=NextPicture", url)
+        self.assertIn("Input=abc-123", url)
+
+    def test_previous_picture(self):
+        with mock.patch("urllib.request.urlopen") as mo:
+            mo.return_value = self._mock_urlopen()
+            server.vmix_control("PreviousPicture", "abc-xyz")
+        url = mo.call_args[0][0]
+        self.assertIn("Function=PreviousPicture", url)
+
+    def test_select_index_inclui_value(self):
+        with mock.patch("urllib.request.urlopen") as mo:
+            mo.return_value = self._mock_urlopen()
+            server.vmix_control("SelectIndex", "g", "7")
+        url = mo.call_args[0][0]
+        self.assertIn("Value=7", url)
+
+    def test_vmix_control_sem_guid_raise(self):
+        with self.assertRaises(ValueError):
+            server.vmix_control("NextPicture", "")
+
+    def test_vmix_control_offline_retorna_erro(self):
+        import urllib.error
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("connection refused")):
+            r = server.vmix_control("NextPicture", "abc-123")
+        self.assertFalse(r["ok"])
+        self.assertIn("erro", r)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,17 +22,24 @@
   /* Área principal: ATUAL (esq) | PRÓXIMO (dir) — proporção ajustável */
   main {
     flex: 1;
-    display: grid;
-    grid-template-columns:
-      calc(var(--atual-ratio) * 1fr)
-      calc((100 - var(--atual-ratio)) * 1fr);
+    display: flex;
     gap: 24px;
     padding: 24px;
     min-height: 0;
-    transition: grid-template-columns 0.3s ease-out;
   }
 
-  .panel { display: flex; flex-direction: column; min-height: 0; }
+  /* Flex-grow controla a proporção (números puros, sem fr/calc complicado).
+     min-width: 0 é essencial pra flex item respeitar width menor que content. */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    flex: 1 1 0;
+    transition: flex-grow 0.3s ease-out;
+  }
+  .panel-atual   { flex-grow: var(--atual-ratio); }
+  .panel-proximo { flex-grow: calc(100 - var(--atual-ratio)); }
 
   .panel-header {
     display: flex;
@@ -49,7 +56,7 @@
     border-radius: 4px;
     color: white;
   }
-  .panel-atual .badge { background: #e63946; }
+  .panel-atual .badge { background: #2ea043; }
   .panel-proximo .badge { background: #f2b705; color: #1a1a1a; }
 
   /* Número do slide ao lado do badge — proeminente (ex: 7/49) */
@@ -71,12 +78,16 @@
     align-items: center;
     justify-content: center;
     min-height: 0;
+    min-width: 0;
   }
+  /* Frame mantém aspect-ratio 16:9 exato; browser escolhe a maior dimensão
+     possível dentro do max-width/max-height do wrapper (sem width: 100% que
+     quebrava quando a altura era o fator limitante → aparecia letterbox lateral). */
   .slide-frame {
-    width: 100%;
     aspect-ratio: 16 / 9;
+    max-width: 100%;
     max-height: 100%;
-    background: #000;
+    background: transparent;
     border: 4px solid #222;
     border-radius: 8px;
     display: flex;
@@ -86,7 +97,7 @@
     box-shadow: 0 6px 24px rgba(0,0,0,0.18);
     position: relative;
   }
-  .panel-atual .slide-frame { border-color: #e63946; }
+  .panel-atual .slide-frame { border-color: #2ea043; }
   .panel-proximo .slide-frame { border-color: #f2b705; }
   .slide-frame img {
     max-width: 100%;
@@ -103,6 +114,20 @@
     font-size: 22px;
     font-style: italic;
     background: #000;
+  }
+
+  /* Fim da apresentação — canvas do próximo fica cor do fundo + "FIM" grande */
+  .panel-proximo.fim .slide-frame {
+    background: #f2f2f2;
+    border-color: #c8cdd4;
+  }
+  .panel-proximo.fim .slide-frame .placeholder {
+    background: transparent;
+    color: #7a808a;
+    font-size: 72px;
+    font-weight: 800;
+    letter-spacing: 10px;
+    font-style: normal;
   }
 
   /* Rodapé — escala 150% */
@@ -140,7 +165,7 @@
   }
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #e63946 0%, #f2b705 100%);
+    background: linear-gradient(90deg, #3b82f6 0%, #0ea5e9 100%);
     border-radius: 6px;
     transition: width 0.25s ease-out;
     width: 0%;
@@ -165,7 +190,7 @@
     width: 140px;
     height: 14px;
     cursor: pointer;
-    accent-color: #e63946;
+    accent-color: #3b82f6;
   }
   .split-control .label {
     min-width: 70px;
@@ -203,26 +228,187 @@
   .status-overlay.show { opacity: 1; }
   .status-overlay.erro { background: #b00020; }
 
-  /* Banner vermelho fixo quando vMix offline — alerta pro palestrante */
-  .offline-banner {
+  /* ====================== Menu hambúrguer ====================== */
+  .hamburger-btn {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
+    top: 14px;
+    right: 14px;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid #d9d9d9;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0;
+    z-index: 30;
+    transition: background 0.15s;
+  }
+  .hamburger-btn:hover { background: #fff; }
+  .hamburger-btn span {
+    display: block;
+    width: 22px;
+    height: 3px;
+    background: #333;
+    border-radius: 2px;
+  }
+
+  .menu-panel {
+    position: fixed;
+    top: 70px;
+    right: 14px;
+    width: 320px;
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+    padding: 18px;
+    z-index: 29;
+    display: none;
+  }
+  .menu-panel.show { display: block; }
+  .menu-panel h3 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #666;
+    margin: 0 0 12px;
+    font-weight: 700;
+  }
+  .menu-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .btn-ctrl {
+    flex: 1;
+    padding: 12px 10px;
+    font-size: 15px;
+    font-weight: 600;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    background: #f7f7f7;
+    color: #222;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-ctrl:hover:not(:disabled) { background: #e9e9e9; }
+  .btn-ctrl:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ctrl.primary {
+    background: #2ea043;
+    color: #fff;
+    border-color: #2ea043;
+  }
+  .btn-ctrl.primary:hover:not(:disabled) { background: #278537; }
+  .btn-ctrl.reset {
+    background: #fff;
+    border-color: #f28b82;
+    color: #b00020;
+  }
+  .btn-ctrl.reset:hover:not(:disabled) { background: #fff0ef; }
+
+  .menu-goto {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-bottom: 10px;
+  }
+  .menu-goto input {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 16px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    background: #f7f7f7;
+    color: #222;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+  }
+  .menu-goto input:focus { outline: 2px solid #3b82f6; border-color: #3b82f6; }
+  .menu-goto input.invalid { outline: 2px solid #b00020; border-color: #b00020; }
+  .menu-goto .btn-ctrl {
+    flex: 0 0 auto;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-color: #3b82f6;
+    background: #3b82f6;
+    color: #fff;
+  }
+  .menu-goto .btn-ctrl:hover:not(:disabled) { background: #2563eb; }
+  .menu-goto .btn-ctrl:disabled { background: #ccc; border-color: #ccc; opacity: 0.7; }
+
+  .menu-status {
+    font-size: 12px;
+    color: #666;
+    margin-top: 6px;
+    min-height: 14px;
+    font-family: ui-monospace, monospace;
+  }
+  .menu-status.ok { color: #2ea043; }
+  .menu-status.err { color: #b00020; }
+
+  /* Banner quando vMix offline — empurra o conteúdo pra baixo (não sobrepõe) */
+  .offline-banner {
     background: #b00020;
     color: #fff;
     padding: 14px 20px;
     font-size: 18px;
     font-weight: 600;
     text-align: center;
-    z-index: 20;
-    display: none;
     box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    flex-shrink: 0;
+    display: none;
   }
   .offline-banner.show { display: block; }
+
+  /* Banner de preview "X entrando em breve" — amarelo, também empurra */
+  .preview-banner {
+    background: #f2b705;
+    color: #1a1a1a;
+    padding: 10px 20px;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    flex-shrink: 0;
+    display: none;
+  }
+  .preview-banner.show { display: block; }
 </style>
 </head>
 <body>
+
+<button class="hamburger-btn" id="hamburger-btn" type="button" aria-label="Abrir menu de controle" title="Abrir menu de controle">
+  <span></span><span></span><span></span>
+</button>
+
+<div class="menu-panel" id="menu-panel" role="dialog" aria-label="Controle do slideshow">
+  <h3>Controle do slideshow</h3>
+  <div class="menu-row">
+    <button class="btn-ctrl" type="button" id="btn-prev" title="Slide anterior">◀ Anterior</button>
+    <button class="btn-ctrl primary" type="button" id="btn-next" title="Próximo slide">Próximo ▶</button>
+  </div>
+  <div class="menu-goto">
+    <input type="number" id="goto-input" min="1" step="1"
+           placeholder="Nº do slide"
+           aria-label="Número do slide para ir direto"
+           inputmode="numeric">
+    <button class="btn-ctrl" type="button" id="btn-goto">Ir</button>
+  </div>
+  <div class="menu-row">
+    <button class="btn-ctrl reset" type="button" id="btn-reset" title="Voltar pro primeiro slide">↺ Reiniciar (slide 1)</button>
+  </div>
+  <div class="menu-status" id="menu-status"></div>
+</div>
+
+<div class="offline-banner" id="offline-banner">🔴 Sem conexão com o vMix — aguarde o operador restaurar</div>
+<div class="preview-banner" id="preview-banner"></div>
 
 <main>
   <div class="panel panel-atual">
@@ -267,7 +453,6 @@
   </div>
 </div>
 
-<div class="offline-banner" id="offline-banner">🔴 Sem conexão com o vMix — aguarde o operador restaurar</div>
 <div class="status-overlay" id="status"></div>
 
 <script>
@@ -278,6 +463,8 @@ const phAtual = $('ph-atual');
 const phProximo = $('ph-proximo');
 const numAtual = $('num-atual');
 const numProximo = $('num-proximo');
+const panelProximo = document.querySelector('.panel-proximo');
+const previewBanner = $('preview-banner');
 const footerPalestrante = $('footer-palestrante');
 const footerAtual = $('footer-atual');
 const footerTotal = $('footer-total');
@@ -288,40 +475,178 @@ const offlineBanner = $('offline-banner');
 let offlineStreak = 0;
 
 /* ========================================================================
-   Controle de proporção — persistido em localStorage compartilhado com o admin
+   Controle de proporção — fonte da verdade é o servidor (ui_prefs no config).
+   Slider do index manda POST com debounce; /state traz o valor atual.
    ======================================================================== */
-const SPLIT_KEY = 'presenter.split_ratio';
 const SPLIT_DEFAULT = 38;
 const splitSlider = $('split-slider');
 const splitLabel = $('split-label');
 const splitReset = $('split-reset');
 
+let _splitAtual = SPLIT_DEFAULT;     // valor aplicado no momento
+let _splitDirty = false;             // true enquanto o user está arrastando
+let _splitTimer = null;
+
 function aplicarSplit(ratio) {
   const r = Math.min(80, Math.max(20, Math.round(ratio)));
+  _splitAtual = r;
   document.documentElement.style.setProperty('--atual-ratio', r);
-  splitSlider.value = r;
+  if (document.activeElement !== splitSlider) splitSlider.value = r;
   splitLabel.textContent = `${r}/${100 - r}`;
 }
 
-function lerSplit() {
-  const v = parseInt(localStorage.getItem(SPLIT_KEY) || SPLIT_DEFAULT, 10);
-  return isNaN(v) ? SPLIT_DEFAULT : v;
+async function postSplit(r) {
+  try {
+    await fetch('/admin/api/ui_prefs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({split_ratio: r}),
+    });
+  } catch (e) { /* ignora — server pode reaplicar no proximo tick */ }
+  _splitDirty = false;
 }
 
 splitSlider.addEventListener('input', (e) => {
   const v = parseInt(e.target.value, 10);
+  _splitDirty = true;
   aplicarSplit(v);
-  localStorage.setItem(SPLIT_KEY, String(v));
+  clearTimeout(_splitTimer);
+  _splitTimer = setTimeout(() => postSplit(_splitAtual), 400);
 });
 splitReset.addEventListener('click', () => {
-  localStorage.removeItem(SPLIT_KEY);
+  _splitDirty = true;
   aplicarSplit(SPLIT_DEFAULT);
+  postSplit(SPLIT_DEFAULT);
 });
-// Cross-tab sync: admin salvou → index reflete
-window.addEventListener('storage', (e) => {
-  if (e.key === SPLIT_KEY) aplicarSplit(parseInt(e.newValue || SPLIT_DEFAULT, 10));
+aplicarSplit(SPLIT_DEFAULT);
+
+function aplicarSplitDoServer(ratio) {
+  if (_splitDirty) return;  // usuario ainda editando, ignora server
+  if (ratio !== undefined && ratio !== _splitAtual) aplicarSplit(ratio);
+}
+
+/* ========================================================================
+   Banner "Wagner entrando em breve" — aparece quando vMix tem um palestrante
+   diferente em Preview.
+   ======================================================================== */
+function atualizarPreviewBanner(s) {
+  if (s && s.preview_palestrante) {
+    previewBanner.textContent = `🟡 ${s.preview_palestrante} entrando em breve`;
+    previewBanner.classList.add('show');
+  } else {
+    previewBanner.classList.remove('show');
+  }
+}
+
+/* ========================================================================
+   Menu hambúrguer — controla o vMix (next/prev/goto/reset).
+   Usa o guid do palestrante ativo (vem no /state) pra saber qual input
+   mover. Botões desabilitados quando não há ativo.
+   ======================================================================== */
+const hamburgerBtn = $('hamburger-btn');
+const menuPanel = $('menu-panel');
+const btnPrev = $('btn-prev');
+const btnNext = $('btn-next');
+const btnReset = $('btn-reset');
+const btnGoto = $('btn-goto');
+const gotoInput = $('goto-input');
+const menuStatus = $('menu-status');
+
+let _stateAtual = null;   // ultimo /state recebido
+
+hamburgerBtn.addEventListener('click', () => {
+  menuPanel.classList.toggle('show');
+  if (menuPanel.classList.contains('show')) {
+    gotoInput.focus();
+    gotoInput.select();
+  }
 });
-aplicarSplit(lerSplit());
+// Fecha ao clicar fora do painel
+document.addEventListener('click', (e) => {
+  if (!menuPanel.classList.contains('show')) return;
+  if (menuPanel.contains(e.target) || hamburgerBtn.contains(e.target)) return;
+  menuPanel.classList.remove('show');
+});
+// Esc fecha
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') menuPanel.classList.remove('show');
+});
+
+function mostrarStatus(msg, tipo = '') {
+  menuStatus.textContent = msg;
+  menuStatus.className = 'menu-status' + (tipo ? ' ' + tipo : '');
+  if (msg) setTimeout(() => {
+    if (menuStatus.textContent === msg) { menuStatus.textContent = ''; menuStatus.className = 'menu-status'; }
+  }, 2500);
+}
+
+async function vmixAction(action, extra = {}) {
+  if (!_stateAtual || !_stateAtual.ativo || !_stateAtual.guid) {
+    mostrarStatus('nenhum palestrante ativo no vMix', 'err');
+    return false;
+  }
+  try {
+    const resp = await fetch('/admin/api/vmix_control', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action, guid: _stateAtual.guid, ...extra}),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      mostrarStatus(data.error || ('falha: HTTP ' + resp.status), 'err');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    mostrarStatus('erro de rede: ' + e.message, 'err');
+    return false;
+  }
+}
+
+btnNext.addEventListener('click', async () => {
+  if (await vmixAction('next')) mostrarStatus('▶ avançando', 'ok');
+});
+btnPrev.addEventListener('click', async () => {
+  if (await vmixAction('prev')) mostrarStatus('◀ voltando', 'ok');
+});
+btnReset.addEventListener('click', async () => {
+  if (await vmixAction('reset')) mostrarStatus('↺ slide 1', 'ok');
+});
+
+function validarGotoInput() {
+  const raw = gotoInput.value.trim();
+  if (raw === '') { gotoInput.classList.remove('invalid'); btnGoto.disabled = true; return null; }
+  const n = Number(raw);
+  const total = _stateAtual && _stateAtual.total ? _stateAtual.total : 0;
+  const ok = Number.isInteger(n) && n >= 1 && (!total || n <= total);
+  gotoInput.classList.toggle('invalid', !ok);
+  btnGoto.disabled = !ok || !_stateAtual || !_stateAtual.ativo;
+  return ok ? n : null;
+}
+gotoInput.addEventListener('input', validarGotoInput);
+gotoInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); btnGoto.click(); }
+});
+btnGoto.addEventListener('click', async () => {
+  const n = validarGotoInput();
+  if (n === null) return;
+  if (await vmixAction('goto', {index: n})) {
+    mostrarStatus(`→ slide ${n}`, 'ok');
+    gotoInput.value = '';
+    btnGoto.disabled = true;
+  }
+});
+
+function atualizarBotoesMenu() {
+  const ativo = _stateAtual && _stateAtual.ativo;
+  btnPrev.disabled = !ativo || (_stateAtual && _stateAtual.indice <= 1);
+  btnNext.disabled = !ativo || (_stateAtual && _stateAtual.indice >= _stateAtual.total);
+  btnReset.disabled = !ativo;
+  const total = _stateAtual && _stateAtual.total ? _stateAtual.total : 1;
+  gotoInput.max = total;
+  gotoInput.placeholder = ativo ? `1 – ${total}` : 'nº do slide';
+  validarGotoInput();
+}
 
 /* ========================================================================
    Polling do /state
@@ -360,31 +685,42 @@ async function tick() {
   try {
     const r = await fetch('/state', { cache: 'no-store' });
     const s = await r.json();
+    _stateAtual = s;
+    atualizarBotoesMenu();
+
+    // Aplica prefs do server se o usuario nao estiver arrastando o slider
+    if (s.ui_prefs) aplicarSplitDoServer(s.ui_prefs.split_ratio);
 
     if (!s.ok) {
       showStatus(s.erro || 'Erro desconhecido', true);
       atualizarOfflineBanner(true);
+      atualizarPreviewBanner(null);
       return;
     }
 
     atualizarOfflineBanner(false);
+    atualizarPreviewBanner(s);
 
     if (!s.ativo) {
       showStatus(s.mensagem || 'Aguardando palestrante...');
       setImg(imgAtual, phAtual, null, '— sem slide ativo —');
       setImg(imgProximo, phProximo, null, '— sem slide ativo —');
+      panelProximo.classList.remove('fim');
       numAtual.innerHTML = '—';
       numProximo.innerHTML = '—';
       footerPalestrante.textContent = s.palestrante || '—';
       footerAtual.textContent = '—';
       footerTotal.textContent = '—';
       progressFill.style.width = '0%';
+      atualizarPreviewBanner(s);
       return;
     }
 
     hideStatus();
     setImg(imgAtual, phAtual, s.atual_url);
-    setImg(imgProximo, phProximo, s.proximo_url, '— fim da apresentação —');
+    const noFim = s.ativo && !s.proximo_url;
+    setImg(imgProximo, phProximo, s.proximo_url, noFim ? 'FIM' : '— aguardando —');
+    panelProximo.classList.toggle('fim', noFim);
 
     // Números grandes ao lado dos slides
     numAtual.innerHTML = `${s.indice}<span class="total"> / ${s.total}</span>`;
@@ -392,7 +728,7 @@ async function tick() {
     if (proxIdx <= s.total) {
       numProximo.innerHTML = `${proxIdx}<span class="total"> / ${s.total}</span>`;
     } else {
-      numProximo.innerHTML = `<span class="total">—</span>`;
+      numProximo.innerHTML = `<span class="total">FIM</span>`;
     }
 
     footerPalestrante.textContent = s.palestrante;

@@ -19,10 +19,13 @@ OUT = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
 PNG_PREVIEW = OUT.with_suffix(".png")
 
 # Paleta (mesmas do index.html + admin.html)
+# v0.5.0: vermelho reservado pra alerta; atual = verde; progresso = azul.
 BG_DARK = (0x1A, 0x1D, 0x23, 255)       # fundo de card do admin
 SLIDE_BG = (0xE8, 0xEA, 0xED, 255)       # cinza claro (miolo do slide)
-RED = (0xE6, 0x39, 0x46, 255)            # borda slide atual
+GREEN = (0x2E, 0xA0, 0x43, 255)          # borda slide atual (verde saturado)
 YELLOW = (0xF2, 0xB7, 0x05, 255)          # borda slide proximo
+BLUE_A = (0x3B, 0x82, 0xF6, 255)          # inicio do gradient da progress
+BLUE_B = (0x0E, 0xA5, 0xE9, 255)          # fim do gradient da progress
 
 
 def make_icon(size: int = 512) -> Image.Image:
@@ -56,12 +59,12 @@ def make_icon(size: int = 512) -> Image.Image:
     border = max(6, int(size * 0.022))
     corner = max(2, int(size * 0.015))
 
-    # Slide ATUAL (esquerda, menor, borda vermelha)
+    # Slide ATUAL (esquerda, menor, borda verde)
     draw.rounded_rectangle(
         [(x_left, y_left), (x_left + w_left, y_left + h_left)],
         radius=corner,
         fill=SLIDE_BG,
-        outline=RED,
+        outline=GREEN,
         width=border,
     )
 
@@ -74,18 +77,17 @@ def make_icon(size: int = 512) -> Image.Image:
         width=border,
     )
 
-    # Barra de progresso sutil embaixo (gradiente vermelho -> amarelo)
+    # Barra de progresso embaixo (gradiente azul claro -> azul)
     bar_y = int(size * 0.82)
     bar_x0 = pad
     bar_x1 = size - pad
     bar_h = max(3, int(size * 0.015))
-    # gradiente linear simples
     steps = 40
     for i in range(steps):
         t = i / (steps - 1)
-        r = int(RED[0] + (YELLOW[0] - RED[0]) * t)
-        g = int(RED[1] + (YELLOW[1] - RED[1]) * t)
-        b = int(RED[2] + (YELLOW[2] - RED[2]) * t)
+        r = int(BLUE_A[0] + (BLUE_B[0] - BLUE_A[0]) * t)
+        g = int(BLUE_A[1] + (BLUE_B[1] - BLUE_A[1]) * t)
+        b = int(BLUE_A[2] + (BLUE_B[2] - BLUE_A[2]) * t)
         x0 = int(bar_x0 + (bar_x1 - bar_x0) * i / steps)
         x1 = int(bar_x0 + (bar_x1 - bar_x0) * (i + 1) / steps)
         draw.rectangle([(x0, bar_y), (x1, bar_y + bar_h)], fill=(r, g, b, 255))

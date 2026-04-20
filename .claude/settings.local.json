@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/GitHub/chrome-extension-vmix-layer-control/**)",
+      "WebFetch(domain:www.vmix.com)"
+    ]
+  }
+}
