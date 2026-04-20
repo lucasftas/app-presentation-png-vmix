@@ -12,11 +12,13 @@ Uso:
 from __future__ import annotations
 
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 
 OUT = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+OUT_ALERT = Path(__file__).resolve().parent.parent / "assets" / "icon_alert.ico"
 PNG_PREVIEW = OUT.with_suffix(".png")
+PNG_PREVIEW_ALERT = OUT_ALERT.with_suffix(".png")
 
 # Paleta (mesmas do index.html + admin.html)
 # v0.5.0: vermelho reservado pra alerta; atual = verde; progresso = azul.
@@ -103,19 +105,52 @@ def make_icon(size: int = 512) -> Image.Image:
     return img
 
 
+def make_icon_alert(size: int = 512) -> Image.Image:
+    """Variante com badge de alerta vermelho no canto — indica problema."""
+    img = make_icon(size)
+    draw = ImageDraw.Draw(img)
+    RED_ALERT = (0xDC, 0x26, 0x26, 255)   # red-600
+    WHITE = (0xFF, 0xFF, 0xFF, 255)
+
+    # Circulo vermelho no canto superior direito (~30% do tamanho)
+    r = int(size * 0.32)
+    cx = size - r // 2 - int(size * 0.04)
+    cy = r // 2 + int(size * 0.04)
+    draw.ellipse([(cx - r // 2, cy - r // 2),
+                   (cx + r // 2, cy + r // 2)],
+                  fill=RED_ALERT,
+                  outline=WHITE,
+                  width=max(3, int(size * 0.012)))
+
+    # "!" branco no centro do circulo
+    try:
+        font = ImageFont.truetype("arialbd.ttf", int(r * 0.7))
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), "!", font=font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    draw.text((cx - w // 2 - bbox[0], cy - h // 2 - bbox[1]),
+               "!", fill=WHITE, font=font)
+    return img
+
+
 def main() -> None:
     OUT.parent.mkdir(exist_ok=True)
+
     master = make_icon(512)
-
-    # Preview PNG pra ver no VS Code
     master.save(PNG_PREVIEW, format="PNG")
-    print(f"Preview PNG: {PNG_PREVIEW}")
-
-    # .ico multi-tamanho (Pillow redimensiona internamente)
     master.save(OUT, format="ICO",
                 sizes=[(16, 16), (32, 32), (48, 48),
                        (64, 64), (128, 128), (256, 256)])
-    print(f"Icone ICO:   {OUT}")
+    print(f"Normal:  {OUT}")
+
+    alerta = make_icon_alert(512)
+    alerta.save(PNG_PREVIEW_ALERT, format="PNG")
+    alerta.save(OUT_ALERT, format="ICO",
+                 sizes=[(16, 16), (32, 32), (48, 48),
+                         (64, 64), (128, 128), (256, 256)])
+    print(f"Alerta:  {OUT_ALERT}")
 
 
 if __name__ == "__main__":
