@@ -1,4 +1,8 @@
-# Runtime: nenhuma dependencia externa (Python stdlib pura).
-#
+# Runtime:
+#   pystray — tray icon na bandeja do Windows (menu nativo)
+#   Pillow  — carregar/converter o icon.ico pro pystray
+pystray>=0.19.5
+Pillow>=10.0
+
 # Build-only (para gerar apresentador.exe):
 #   pip install pyinstaller

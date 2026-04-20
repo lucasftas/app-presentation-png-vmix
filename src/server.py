@@ -1208,6 +1208,21 @@ def _ip_lan() -> str | None:
         return None
 
 
+_server_ref: "ThreadingServer | None" = None
+
+
+def _shutdown_server() -> None:
+    """Para o HTTP server limpo. Chamado pelo tray (Sair/Reiniciar)."""
+    global _server_ref
+    if _server_ref is not None:
+        try:
+            _server_ref.shutdown()
+            _server_ref.server_close()
+        except Exception:
+            pass
+        _server_ref = None
+
+
 def main() -> None:
     setup_logging(verbose=True)
     ip_lan = _ip_lan()
@@ -1241,11 +1256,38 @@ def main() -> None:
 
     threading.Thread(target=_abrir_browser, daemon=True).start()
 
-    with ThreadingServer(("", SERVER_PORT), Handler) as srv:
+    global _server_ref
+    srv = ThreadingServer(("", SERVER_PORT), Handler)
+    _server_ref = srv
+
+    def _run_srv() -> None:
         try:
             srv.serve_forever()
+        except Exception as e:
+            logger.error("HTTP server parou: %s", e)
+
+    server_thread = threading.Thread(target=_run_srv, daemon=True)
+    server_thread.start()
+
+    # Tray: tenta subir o icone na bandeja. Se falhar (sem display, lib ausente
+    # em dev), cai em modo "bloqueia na main thread" como antes.
+    try:
+        import tray as _tray
+        _tray.rodar_tray(sys.modules[__name__], shutdown_fn=_shutdown_server)
+    except ImportError:
+        logger.info("pystray nao disponivel — rodando sem tray icon (Ctrl+C pra sair)")
+        try:
+            server_thread.join()
         except KeyboardInterrupt:
             print("\nEncerrando.")
+            _shutdown_server()
+    except Exception as e:
+        logger.error("tray falhou: %s — rodando sem tray", e)
+        try:
+            server_thread.join()
+        except KeyboardInterrupt:
+            print("\nEncerrando.")
+            _shutdown_server()
 
 
 if __name__ == "__main__":

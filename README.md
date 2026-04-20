@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.5.0 — layout escalado 150%, menu hambúrguer no index com controle direto do vMix (prev/next/goto/reset), controle de proporção sincronizado entre tablets, "🟡 Wagner entrando em breve" via Preview do vMix, "FIM" ao acabar, paleta nova (atual=verde, progresso=azul, vermelho=alerta)
+**Status:** ✅ v0.6.0 — **tray icon nativo do Windows** com menu completo (status, slides, configs), dialog pra editar IP do vMix, notificações de eventos críticos, `--noconsole` (sem janela CMD poluindo)
 
 ---
 

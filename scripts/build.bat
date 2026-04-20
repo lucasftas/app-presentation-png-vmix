@@ -29,10 +29,14 @@ if exist build rmdir /s /q build
 if exist "Iniciar Apresentador.spec" del "Iniciar Apresentador.spec"
 if exist apresentador.spec del apresentador.spec
 
-REM Compila o .exe (single-file, com icone)
+REM Compila o .exe (single-file, com icone, sem console — tray icon e a UI)
 pyinstaller --onefile ^
     --name "Iniciar Apresentador" ^
     --icon assets\icon.ico ^
+    --noconsole ^
+    --hidden-import pystray._win32 ^
+    --hidden-import PIL ^
+    --add-data "src\tray.py;." ^
     --distpath dist\tmp ^
     --workpath build ^
     --specpath build ^
