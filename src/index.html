@@ -332,6 +332,90 @@
   }
   .menu-goto input:focus { outline: 2px solid #3b82f6; border-color: #3b82f6; }
   .menu-goto input.invalid { outline: 2px solid #b00020; border-color: #b00020; }
+  /* Remove setinha spinner do input number (Chrome/Safari + Firefox) */
+  .menu-goto input[type=number]::-webkit-outer-spin-button,
+  .menu-goto input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .menu-goto input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  /* Grid de botões numerados — clique rápido pra qualquer slide */
+  .slide-grid-label {
+    font-size: 11px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    margin: 4px 0 6px;
+  }
+  .slide-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 4px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 8px;
+    background: #f7f7f7;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    margin-bottom: 10px;
+  }
+  .slide-btn {
+    aspect-ratio: 1;
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+    font-family: ui-monospace, monospace;
+    transition: background 0.1s, border-color 0.1s, transform 0.08s;
+  }
+  .slide-btn:hover:not(:disabled) { background: #e9e9e9; border-color: #999; }
+  .slide-btn:active:not(:disabled) { transform: scale(0.95); }
+  .slide-btn.atual {
+    background: #2ea043;
+    color: #fff;
+    border-color: #2ea043;
+    box-shadow: 0 0 0 2px #2ea04344;
+  }
+  .slide-btn.proximo {
+    border-color: #f2b705;
+    color: #8a6400;
+  }
+  .slide-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .slide-grid-vazio {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 18px;
+    color: #999;
+    font-size: 12px;
+    font-style: italic;
+  }
+  /* Reticências quando há mais slides que o limite do grid (200) */
+  .slide-btn-ellipsis {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: #888;
+    background: #e8e8e8;
+    border: 1px dashed #bbb;
+    border-radius: 4px;
+    cursor: help;
+    line-height: 1;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 2px;
+  }
   .menu-goto .btn-ctrl {
     flex: 0 0 auto;
     padding: 0 16px;
@@ -401,6 +485,10 @@
            inputmode="numeric">
     <button class="btn-ctrl" type="button" id="btn-goto">Ir</button>
   </div>
+
+  <div class="slide-grid-label">Ou clique direto:</div>
+  <div class="slide-grid" id="slide-grid" role="group" aria-label="Grid de slides para clique rápido"></div>
+
   <div class="menu-row">
     <button class="btn-ctrl reset" type="button" id="btn-reset" title="Voltar pro primeiro slide">↺ Reiniciar (slide 1)</button>
   </div>
@@ -637,6 +725,39 @@ btnGoto.addEventListener('click', async () => {
   }
 });
 
+const slideGrid = $('slide-grid');
+const SLIDE_GRID_LIMITE = 200;
+
+function renderSlideGrid() {
+  if (!_stateAtual || !_stateAtual.ativo || !_stateAtual.total) {
+    slideGrid.innerHTML = '<div class="slide-grid-vazio">— sem palestrante ativo —</div>';
+    return;
+  }
+  const total = _stateAtual.total;
+  const atual = _stateAtual.indice;
+  const max = Math.min(total, SLIDE_GRID_LIMITE);
+  const partes = [];
+  for (let n = 1; n <= max; n++) {
+    const classes = ['slide-btn'];
+    if (n === atual) classes.push('atual');
+    else if (n === atual + 1) classes.push('proximo');
+    partes.push(`<button type="button" class="${classes.join(' ')}" data-n="${n}" title="Ir pro slide ${n}">${n}</button>`);
+  }
+  if (total > SLIDE_GRID_LIMITE) {
+    partes.push(`<div class="slide-btn-ellipsis" title="+${total - SLIDE_GRID_LIMITE} slides — use o campo &quot;Ir pro slide&quot; pra ir além de ${SLIDE_GRID_LIMITE}">…</div>`);
+  }
+  slideGrid.innerHTML = partes.join('');
+}
+
+// Event delegation — um único listener cobre todos os 80 botões
+slideGrid.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.slide-btn');
+  if (!btn || btn.disabled) return;
+  const n = parseInt(btn.dataset.n, 10);
+  if (!Number.isInteger(n)) return;
+  if (await vmixAction('goto', {index: n})) mostrarStatus(`→ slide ${n}`, 'ok');
+});
+
 function atualizarBotoesMenu() {
   const ativo = _stateAtual && _stateAtual.ativo;
   btnPrev.disabled = !ativo || (_stateAtual && _stateAtual.indice <= 1);
@@ -646,6 +767,7 @@ function atualizarBotoesMenu() {
   gotoInput.max = total;
   gotoInput.placeholder = ativo ? `1 – ${total}` : 'nº do slide';
   validarGotoInput();
+  renderSlideGrid();
 }
 
 /* ========================================================================

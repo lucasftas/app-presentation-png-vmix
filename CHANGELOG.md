@@ -3,6 +3,17 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] — 2026-04-19
+
+### Added
+- Grid de botões numerados no menu hambúrguer (até **200** botões; slides acima do limite mostram **…** com tooltip sugerindo o campo "Ir pro slide")
+- Botão do slide atual em verde sólido com glow; próximo (atual+1) com borda amarela
+- Event delegation no grid — um único listener cobre os 200 botões
+
+### Changed
+- Removida a setinha spinner do `input[type=number]` do campo "Ir pro slide" (CSS `-webkit-appearance: none` + `-moz-appearance: textfield`)
+- `.claude/` agora no `.gitignore` (settings locais do Claude Code não vão mais pro repo)
+
 ## [0.5.0] — 2026-04-19
 
 ### Added
