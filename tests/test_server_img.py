@@ -12,7 +12,7 @@ from tests.conftest_helpers import make_images  # noqa: E402
 import server  # noqa: E402
 
 
-WAGNER_GUID = "51f89804-b46f-4716-8914-4f692c63c38c"
+WAGNER_GUID = "aaaaaaaa-0000-0000-0000-000000000001"
 
 
 class RescanImgTests(unittest.TestCase):

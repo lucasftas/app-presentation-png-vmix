@@ -1174,28 +1174,16 @@
 /* ========================================================================
    MOCK DATA — populado com dados reais lidos do vMix local em 2026-04-19
    ======================================================================== */
+/* Instância vMix ativa — atualizada pelo boot() com host/port do config */
 const INSTANCIAS = [
-  { id: 'local', label: 'vMix Local', host: 'localhost', port: 8088, status: 'online', version: '29.0.0.47', preset: 'Jornada Full Face 2 Edição' }
+  { id: 'local', label: 'vMix', host: 'localhost', port: 8088, status: 'offline', version: '' },
 ];
 
-const INPUTS_PHOTOS = [
-  { guid: '51f89804-b46f-4716-8914-4f692c63c38c', num: 60, shortTitle: 'PNG SLIDE Wagner', title: 'PNG SLIDE Wagner - slide 07.png', total: 49, idx: 7 },
-  { guid: '1cb3e57a-b400-4751-8c16-a5d5a88dfe03', num: 71, shortTitle: '003 - Vinícius', title: '003 - Vinícius - slide 16.png', total: 33, idx: 16 },
-  { guid: 'fc56787d-71c7-4708-bb14-e75ac2c70e46', num: 73, shortTitle: '004 - Camila', title: '004 - Camila - slide 16.png', total: 16, idx: 16 },
-  { guid: 'ea032892-108e-4e00-b6da-e697f29291b4', num: 67, shortTitle: 'A Primeira Parte Pitch', title: 'A Primeira Parte Pitch - slide 05.png', total: 5, idx: 3 },
-  { guid: '41a5b783-980f-4213-9d94-641f869c9e1a', num: 69, shortTitle: 'B Segunda Parte Pitch', title: 'B Segunda Parte Pitch - slide 20.png', total: 4, idx: 2 },
-  { guid: '6475ab73-f8db-4b25-85f6-b05e9dc155fd', num: 82, shortTitle: '005 - Demonstração Resultados', title: '005 - Demonstração Resultados - Wagner.png', total: 1, idx: 2 },
-];
+/* Inputs Photos detectados no vMix — populado pelo pollTick a cada 500ms */
+const INPUTS_PHOTOS = [];
 
-/* Colour inputs que envelopam um Photos em overlay[1] — blanks de slides */
-const INPUTS_COMPOSTOS = [
-  { guid: '8ce11bad-a75a-42fa-9299-2d220b822a82', num: 61, title: 'B      SLIDES WAGNER + CAM', childGuid: '51f89804-b46f-4716-8914-4f692c63c38c' },
-  { guid: '9dd4c339-c1d1-43c7-aaf7-687dd79a56b1', num: 68, title: 'K      PITCH + CAM PT1', childGuid: 'ea032892-108e-4e00-b6da-e697f29291b4' },
-  { guid: 'c585efcf-f949-40f7-a4a2-b52257386158', num: 70, title: 'M      PITCH + CAMERA PT2', childGuid: '41a5b783-980f-4213-9d94-641f869c9e1a' },
-  { guid: '7235da8b-d12a-437a-a4be-6b8d2556d42a', num: 72, title: 'Q     SLIDE VINI + CAM', childGuid: '1cb3e57a-b400-4751-8c16-a5d5a88dfe03' },
-  { guid: '7d279f6b-45d8-4f7d-813e-0f11c25a50ec', num: 80, title: 'R      CAMILA + SLIDES', childGuid: 'fc56787d-71c7-4708-bb14-e75ac2c70e46' },
-  { guid: '50cd0837-1f2d-4c9a-a9de-670e1f3a8d7b', num: 83, title: 'U      DEMONSTRAÇÃO RESULTADOS', childGuid: '6475ab73-f8db-4b25-85f6-b05e9dc155fd' },
-];
+/* Inputs Colour que envelopam um Photos em overlay[1] — blanks de slides */
+const INPUTS_COMPOSTOS = [];
 
 /* Palestrantes configurados — carregado via GET /admin/api/config no boot */
 let CONFIGURADOS = [];

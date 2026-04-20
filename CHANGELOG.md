@@ -3,6 +3,18 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] — 2026-04-20
+
+### Added
+- **LICENSE (MIT)** — repositório agora licenciado, pronto pra uso público/comercial
+- **README redesign** com badges (version, MIT, Python, vMix, Platform), hero, features por persona (palestrante / operador / tray / resiliência), quick start em 3 passos, arquitetura em ASCII, API REST table, contributing e CTA de estrela
+
+### Changed (sanitização pré-open-source)
+- Removido mock data morto em `src/admin.html` — arrays `INPUTS_PHOTOS`/`INPUTS_COMPOSTOS` que continham GUIDs reais do preset de desenvolvimento agora inicializam vazios (são populados pelo pollTick)
+- GUIDs de teste trocados por placeholders (`aaaaaaaa-0000-...`)
+- Referências ao nome comercial "Jornada Full Face" trocadas por genérico em `config.example.json`, `mocks/tray.html`, `IMPLEMENTATIONS.md`
+- `config.example.json` com paths genéricos (`D:/Slides`, `\\servidor\share\slides`)
+
 ## [0.8.0] — 2026-04-20
 
 ### Added
