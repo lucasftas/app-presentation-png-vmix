@@ -19,6 +19,7 @@ import logging
 import logging.handlers
 import mimetypes
 import re
+import socket
 import socketserver
 import string
 import sys
@@ -88,9 +89,18 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent
 
 APP_DIR = app_dir()
+_RECURSOS_DIR = APP_DIR / "recursos"
+
+
+def _asset_path(name: str) -> Path:
+    """Busca asset em recursos/ (pasta portable) ou APP_DIR (dev mode)."""
+    candidato = _RECURSOS_DIR / name
+    return candidato if candidato.is_file() else APP_DIR / name
+
+
 CONFIG_PATH = APP_DIR / "config.json"
-INDEX_PATH = APP_DIR / "index.html"
-ADMIN_PATH = APP_DIR / "admin.html"
+INDEX_PATH = _asset_path("index.html")
+ADMIN_PATH = _asset_path("admin.html")
 LOG_DIR = APP_DIR / "logs"
 
 logger = logging.getLogger("apresentador")
@@ -1032,27 +1042,52 @@ class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
 
+def _ip_lan() -> str | None:
+    """Descobre IP da maquina na rede local (pro URL que o palestrante acessa).
+
+    Truque classico: abre socket UDP para um IP publico qualquer, nao envia nada,
+    e le o endereco local escolhido pelo SO.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except OSError:
+        return None
+
+
 def main() -> None:
     setup_logging(verbose=True)
-    print("=" * 60)
+    ip_lan = _ip_lan()
+    print("=" * 68)
     print("  Modo Apresentador - app-presentation-png-vmix")
-    print(f"  vMix:   http://{VMIX_HOST}:{VMIX_PORT}/api")
-    print(f"  Live:   http://localhost:{SERVER_PORT}/")
-    print(f"  Admin:  http://localhost:{SERVER_PORT}/admin")
-    print(f"  App:    {APP_DIR}")
-    print(f"  Logs:   {LOG_DIR}")
-    print("=" * 60)
+    print("=" * 68)
+    print(f"  vMix:         http://{VMIX_HOST}:{VMIX_PORT}/api")
+    print(f"  Admin:        http://localhost:{SERVER_PORT}/admin")
+    if ip_lan:
+        print(f"  Palestrante:  http://{ip_lan}:{SERVER_PORT}/")
+        print(f"                (use esta URL no tablet do palestrante)")
+    else:
+        print(f"  Palestrante:  http://localhost:{SERVER_PORT}/")
+    print(f"  Logs:         {LOG_DIR}")
+    print("=" * 68)
     if PALESTRANTES:
         print("  Palestrantes carregados:")
         for guid, (nome, pasta, slides) in PALESTRANTES.items():
-            print(f"    {nome}: {pasta.name} ({len(slides)} slides)")
+            print(f"    {nome}: {pasta.name} ({len(slides)} imagens)")
     else:
-        print("  [aviso] Nenhum palestrante valido carregado - confira o config.json")
-    print("=" * 60)
+        print("  Nenhum palestrante configurado — abrindo o Dashboard admin")
+        print("  pra voce configurar. Depois, recarregue no navegador.")
+    print("=" * 68)
+
+    # Onboarding: se ainda nao ha palestrantes, abre direto o /admin
+    abrir_path = "/admin" if not PALESTRANTES else "/"
 
     def _abrir_browser() -> None:
         time.sleep(0.8)
-        webbrowser.open(f"http://localhost:{SERVER_PORT}/")
+        webbrowser.open(f"http://localhost:{SERVER_PORT}{abrir_path}")
 
     threading.Thread(target=_abrir_browser, daemon=True).start()
 
