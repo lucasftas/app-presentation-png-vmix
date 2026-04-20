@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.7.0 — à prova de falhas silenciosas: port fallback automático, single-instance guard, health check interno, file watcher do config, timeout em UNC, ícone de alerta, modo kiosk (F11)
+**Status:** ✅ v0.7.1 — polish visual: placeholders explícitos nos slides vazios, banner "entrando em breve" grande com contagem, clique no tray abre Dashboard, app roda discreto sem auto-abrir browser
 
 ---
 

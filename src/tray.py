@@ -317,11 +317,12 @@ def montar_menu_items(server_module, icon=None, shutdown_fn=None):
     items.append(pystray.Menu.SEPARATOR)
 
     # ===== Abrir telas =====
-    items.append(pystray.MenuItem("🖼️  Abrir Modo Apresentador",
-                                   _abrir_apresentador(server_module),
-                                   default=True))  # click simples = default
+    # Default (click simples/duplo no icone) = abrir o Dashboard (admin).
     items.append(pystray.MenuItem("⚙️  Abrir Dashboard (admin)",
-                                   _abrir_admin(server_module)))
+                                   _abrir_admin(server_module),
+                                   default=True))
+    items.append(pystray.MenuItem("🖼️  Abrir Modo Apresentador",
+                                   _abrir_apresentador(server_module)))
 
     # ===== Submenu Configs =====
     configs = pystray.Menu(

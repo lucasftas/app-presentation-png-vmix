@@ -695,9 +695,9 @@ def _find_palestrante_em(root: ET.Element, inp: ET.Element | None,
     return None
 
 
-def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> str | None:
+def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> tuple[str, int] | None:
     """Se o input em Preview do vMix for um palestrante configurado diferente
-    do que esta no Program, retorna o nome dele. Caso contrario, None.
+    do que esta no Program, retorna (nome, total_de_slides). Caso contrario, None.
     """
     preview_num = (root.findtext("preview") or "").strip()
     if not preview_num:
@@ -709,7 +709,8 @@ def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> str | None
     guid_prev = achado[0]
     if ativo_guid and guid_prev == ativo_guid:
         return None
-    return PALESTRANTES[guid_prev][0]
+    nome, _pasta, imagens = PALESTRANTES[guid_prev]
+    return (nome, len(imagens))
 
 
 def compute_state() -> dict:
@@ -724,13 +725,16 @@ def compute_state() -> dict:
     active_num = root.findtext("active")
     input_program = _input_by_num(root, active_num)
 
-    # Preview do palestrante (pode existir mesmo sem ativo)
-    preview_pal = _preview_palestrante(root, None)
+    def _prev_fields(ativo_guid):
+        r = _preview_palestrante(root, ativo_guid)
+        if r is None:
+            return {"preview_palestrante": None, "preview_total": None}
+        return {"preview_palestrante": r[0], "preview_total": r[1]}
 
     if input_program is None:
         return {**base, "ok": True, "ativo": False,
                 "mensagem": "Sem input em Program",
-                "preview_palestrante": preview_pal}
+                **_prev_fields(None)}
 
     achado = _find_palestrante_em(root, input_program, PALESTRANTES)
 
@@ -745,12 +749,11 @@ def compute_state() -> dict:
                 break
 
     ativo_guid = achado[0] if achado else None
-    preview_pal = _preview_palestrante(root, ativo_guid)
 
     if achado is None:
         return {**base, "ok": True, "ativo": False,
                 "mensagem": "Nenhum slide de palestrante em Program",
-                "preview_palestrante": preview_pal}
+                **_prev_fields(None)}
 
     guid, input_palestrante = achado
     nome, pasta_path, slides = PALESTRANTES[guid]
@@ -760,7 +763,7 @@ def compute_state() -> dict:
     if idx is None:
         return {**base, "ok": True, "ativo": False, "palestrante": nome,
                 "mensagem": f"Slide atual ('{title}') nao bateu com arquivos da pasta",
-                "preview_palestrante": preview_pal}
+                **_prev_fields(ativo_guid)}
 
     atual = slides[idx]
     proximo = slides[idx + 1] if idx + 1 < len(slides) else None
@@ -777,7 +780,7 @@ def compute_state() -> dict:
         "total": len(slides),
         "atual_url": url_img(atual),
         "proximo_url": url_img(proximo) if proximo else None,
-        "preview_palestrante": preview_pal,
+        **_prev_fields(ativo_guid),
     }
 
 
@@ -1478,14 +1481,9 @@ def main() -> None:
         print("  pra voce configurar. Depois, recarregue no navegador.")
     print("=" * 68)
 
-    # Onboarding: se ainda nao ha palestrantes, abre direto o /admin
-    abrir_path = "/admin" if not PALESTRANTES else "/"
-
-    def _abrir_browser() -> None:
-        time.sleep(0.8)
-        webbrowser.open(f"http://localhost:{SERVER_PORT}{abrir_path}")
-
-    threading.Thread(target=_abrir_browser, daemon=True).start()
+    # Sem auto-abrir browser — app roda discreto no tray.
+    # Operador abre manualmente via "Abrir Dashboard" / "Abrir Modo Apresentador"
+    # no menu do tray, ou pela URL mostrada no banner.
 
     def _run_srv() -> None:
         try:
