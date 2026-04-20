@@ -3,6 +3,21 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-04-20 🎉 Primeira release pública
+
+Marco simbólico: repositório **aberto ao público com licença MIT**, histórico do Git reescrito pra remover email pessoal dos 99 commits, portable empacotado e anexado como asset da release.
+
+### Added
+- **Portable `.zip`** anexado diretamente à release (download em 1 clique, sem precisar rodar build)
+- **Topics no GitHub** pra descoberta: `vmix`, `presenter-view`, `livestream`, `broadcast`, `python`, `windows`, `tray-icon`, `slideshow`
+- **Descrição e homepage** configurados no repo
+
+### Notes
+Toda a funcionalidade base já estava pronta em `v0.8.1`. Esta release não muda código —
+apenas marca oficialmente o projeto como **production-ready e open-source**.
+
+Se você quer experimentar, baixe o `.zip` abaixo ⬇️
+
 ## [0.8.1] — 2026-04-20
 
 ### Added

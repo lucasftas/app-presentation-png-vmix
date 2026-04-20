@@ -77,11 +77,13 @@ Este app preenche essa lacuna:
 
 ## 🚀 Quick start
 
-### 1. Baixe a release mais recente
+### 1. Baixe o portable
 
-[**⬇️ Download Apresentador vMix (portable, ~30 MB)**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest)
+[**⬇️ Download `Apresentador-vMix-v1.0.0.zip` (~29 MB)**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest/download/Apresentador-vMix-v1.0.0.zip)
 
-Extraia o zip em qualquer lugar. Zero instalação.
+Link direto pro zip da release mais recente — extraia em qualquer lugar, zero instalação.
+
+Ou veja [todas as releases](https://github.com/lucasftas/app-presentation-png-vmix/releases).
 
 ### 2. Duplo-clique no `Iniciar Apresentador.exe`
 
