@@ -3,6 +3,22 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-04-19
+
+### Added
+- Ícone dedicado (`assets/icon.ico`) com o próprio layout do modo apresentador — slide atual pequeno (esq, vermelho) + slide próximo maior (dir, amarelo) + barra de progresso vermelho→amarelo, fundo escuro do card do dashboard
+- Script `scripts/gerar_icone.py` pra regerar via Pillow (multi-tamanho 16/32/48/64/128/256)
+- Estrutura portable amigável pra leigo em `dist/Apresentador vMix/`: exe nomeado "Iniciar Apresentador", `LEIA-ME.txt` com fluxo em 3 passos, HTMLs em subpasta `recursos/`
+- `config.json` pré-preenchido (em vez de exigir copiar de `config.example.json`)
+- Banner de boot mostra URL de LAN (`http://192.168.X.X:5000/`) explicitamente pro operador passar pro tablet
+- Onboarding automático: no primeiro boot sem palestrantes, browser abre direto no `/admin` (em vez de `/`)
+- `meta viewport` nos HTMLs — melhor rendering em tablet e sem error no lint do VS Code
+
+### Changed
+- `server.py` busca HTMLs em `recursos/` primeiro, com fallback para `APP_DIR` (mantém dev mode funcionando)
+- `scripts/build.bat` reescrito: PyInstaller com `--icon`, spec file em `build/`, montagem automática da estrutura portable
+- Exe renomeado de `apresentador.exe` para `Iniciar Apresentador.exe`
+
 ## [0.3.0] — 2026-04-19
 
 ### Added

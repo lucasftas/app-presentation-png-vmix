@@ -1,0 +1,96 @@
+========================================================
+  APRESENTADOR vMix - Modo Apresentador Web
+========================================================
+
+O QUE FAZ
+---------
+Mostra o slide atual + proximo slide pro palestrante num
+tablet/notebook na mesa, sincronizado automaticamente com
+o vMix. Funciona como o "Modo Apresentador" do PowerPoint,
+mas pegando os slides direto do que esta no vMix.
+
+
+COMO USAR - 3 PASSOS
+--------------------
+
+1) Duplo-clique em:
+   "Iniciar Apresentador.exe"
+
+   Vai abrir:
+   - Uma janela preta com logs (deixe aberta durante o evento)
+   - Seu navegador, na tela de configuracao (Dashboard)
+
+
+2) Na tela de configuracao, clique em "+ adicionar palestrante"
+   pra cada palestrante do evento. Para cada um:
+
+   - Escolha o input do vMix (ele lista todos os seus inputs
+     do tipo Photos/ImageList automaticamente)
+   - O nome e preenchido automaticamente — ajuste se quiser
+   - Escolha a pasta das imagens dele usando o navegador de
+     arquivos que aparece no modal
+   - Use o botao "testar" pra confirmar que tudo bate
+   - Clique em "Salvar"
+
+   Cada palestrante vira um card colorido. O card fica com
+   borda vermelha quando o palestrante esta AO VIVO no vMix.
+
+
+3) Pro tablet do palestrante:
+
+   Na tela preta de logs ha uma linha:
+     "Palestrante:  http://192.168.X.X:5000/"
+
+   Abra essa URL no navegador do tablet. O slide atual e o
+   proximo aparecem automaticamente conforme o operador muda
+   no vMix.
+
+
+SE ALGO DER ERRADO
+------------------
+
+- Banner vermelho "vMix offline"
+  --> Confira: o vMix esta aberto? O Web Controller esta
+  ligado (Settings > Web Controller > Enable, porta 8088)?
+
+- Card vermelho "pasta inacessivel"
+  --> A pasta dos slides foi movida/renomeada ou um share
+  de rede caiu. Clique em "config" no card e aponte de novo.
+
+- Card amarelo "GUID orfao"
+  --> O vMix foi aberto com um preset diferente e esse input
+  nao existe mais. Clique em "remover" ou "config".
+
+- Slides aparentemente nao sincronizam
+  --> Clique em "testar" no modal de config do palestrante
+  pra ver se o nome do arquivo no vMix bate com os arquivos
+  da pasta.
+
+
+FORMATOS DE IMAGEM ACEITOS
+--------------------------
+PNG, JPG, JPEG, BMP, GIF, WEBP
+(os mesmos que o vMix aceita em inputs Photos/ImageList)
+
+
+RODANDO EM OUTRA MAQUINA
+------------------------
+Copie a pasta inteira "Apresentador vMix" pra maquina nova.
+Requisitos:
+  - Windows 10/11
+  - Acesso a API HTTP do vMix (porta 8088) via rede
+  - Acesso as pastas onde ficam os slides (pode ser share
+    de rede \\servidor\pasta\...)
+
+
+LOGS
+----
+Durante o evento, os logs ficam na janela preta. Um historico
+completo e gravado em "logs\YYYY-MM-DD.log" ao lado do .exe
+(rotaciona automaticamente em 10 MB, mantendo 5 backups).
+
+
+========================================================
+  Problema? Veja os arquivos CHANGELOG.md e README.md no
+  repositorio github.com/lucasftas/app-presentation-png-vmix
+========================================================

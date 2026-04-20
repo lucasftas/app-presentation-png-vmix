@@ -11,6 +11,20 @@
 - [x] Criação do repositório privado no GitHub (`app-presentation-png-vmix`)
 - [x] Primeiro commit e push para `main`
 
+## 2026-04-19 — distribuição portable v0.4.0 (ícone + estrutura amigável)
+
+- [x] Conversa sobre distribuição: portable zip como primário (padrão da indústria em broadcast — Companion, OBS, Stream Deck), Inno Setup opcional futuramente
+- [x] Ícone iteração 1: letra "A" branca com gradiente vermelho→amarelo (rejeitado pelo user)
+- [x] Ícone iteração 2: representação do layout do index — retângulo menor à esquerda (borda vermelha) + maior à direita (borda amarela) + barra de progresso no rodapé, sobre card escuro arredondado (aprovado)
+- [x] `scripts/gerar_icone.py` com Pillow, exporta multi-tamanho pro .ico
+- [x] Estrutura portable amigável: renomeia raiz pra "Apresentador vMix", exe pra "Iniciar Apresentador", HTMLs pra `recursos/`, adiciona LEIA-ME, `config.json` pré-preenchido
+- [x] `server.py` ganha `_asset_path` (busca em `recursos/` primeiro), `_ip_lan` (descobre IP da LAN via trick de socket UDP), banner redesenhado mostrando URL pro tablet do palestrante, onboarding automático pro /admin quando não há palestrantes
+- [x] `scripts/build.bat` reescrito: gera `dist/Apresentador vMix/` com estrutura montada automaticamente
+- [x] `installer/LEIA-ME.txt` em pt-BR com fluxo em 3 passos + troubleshooting
+- [x] `meta viewport` nos HTMLs — tira o nome vermelho do explorer do VS Code + rendering correto em tablet
+- [x] Build validado: 8.3 MB total, todos os endpoints funcionais, onboarding abre /admin no primeiro boot
+- [x] Release v0.4.0 (filé)
+
 ## 2026-04-19 — sessão "à prova de show ao vivo" v0.3.0 (TDD + miniaturas)
 
 - [x] Conversa identificou 10 rachaduras após v0.2.0: match ambíguo, arquivo sumido, config corrompido, CORS dependency, UNC lento, sem heartbeat, sem telemetria de clientes, logs sem rotação, imagens em RAM

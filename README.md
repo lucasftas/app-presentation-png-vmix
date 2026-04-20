@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.3.0 — à prova de show ao vivo: match ancorado, recovery automático, grid de miniaturas, proxy CORS, heartbeat, clientes conectados, logs com rotação, streaming de imagens
+**Status:** ✅ v0.4.0 — distribuição portable amigável, ícone dedicado, onboarding automático, banner de boot com URL de LAN
 
 ---
 
@@ -102,14 +102,29 @@ python -m unittest discover tests/ -v
 
 Suíte 100% stdlib (`unittest` + `tempfile`), sem dependência externa. Cobre: formatos de imagem, natural sort, validação de config, detecção de palestrante em overlay interno/global, diagnóstico por palestrante (`/health` e `/validate`).
 
-### Produção (build do .exe)
+### Produção (build portable)
 
 ```bash
 pip install pyinstaller
 scripts\build.bat
 ```
 
-Gera `dist/apresentador.exe` + copia `index.html`, `admin.html` e `config.example.json` ao lado. Distribuir a pasta `dist/` inteira pra máquina do evento.
+Gera a pasta **`dist/Apresentador vMix/`** com estrutura amigável pra leigo:
+
+```
+Apresentador vMix/
+├── Iniciar Apresentador.exe    ← duplo-clique é suficiente
+├── LEIA-ME.txt                 ← fluxo em 3 passos
+├── config.json                 ← pré-preenchido com defaults
+└── recursos/
+    ├── admin.html              ← dashboard (server busca aqui primeiro)
+    ├── index.html              ← modo apresentador
+    └── icon.ico
+```
+
+Copiar a pasta inteira pra máquina do evento ou pendrive. Zero instalação. Ao primeiro duplo-clique:
+- Janela de console abre com banner mostrando URL do admin + URL pro tablet do palestrante (com IP da LAN)
+- Navegador abre automaticamente no `/admin` se ainda não há palestrantes configurados, caso contrário no modo apresentador
 
 ## Configuração — `config.json`
 

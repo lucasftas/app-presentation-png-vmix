@@ -1,5 +1,46 @@
 # Implementations
 
+## v0.4.0 — 2026-04-19
+
+**Resumo:** release de distribuição — o app vira um portable pronto-pra-copiar com estrutura "obvia pra leigo", ícone dedicado representando o próprio layout do produto, onboarding automático e banner de boot que diz explicitamente qual URL entregar pro palestrante.
+
+**Ícone (`assets/icon.ico` + `scripts/gerar_icone.py`):**
+- 512px master + export multi-tamanho (16/32/48/64/128/256) pro .ico
+- Design = representação do index.html: 2 retângulos 16:9, esquerda menor (38%) com borda vermelha `#e63946`, direita maior (62%) com borda amarela `#f2b705`, centralizados verticalmente dentro de um card escuro arredondado `#1a1d23`
+- Barra de progresso com gradiente vermelho→amarelo embaixo (mesma do rodapé do modo apresentador)
+- Máscara `rounded_rectangle` no final garante cantos arredondados transparentes
+
+**Estrutura portable (`dist/Apresentador vMix/`):**
+- 8.3 MB total
+- Apenas 3 arquivos na raiz: `Iniciar Apresentador.exe`, `LEIA-ME.txt`, `config.json`
+- HTMLs escondidos em `recursos/` (o leigo não encosta neles)
+- `config.json` já vem pré-preenchido — não exige `cp config.example.json config.json` mental
+
+**`server.py`:**
+- `_asset_path(name)` — helper que busca `recursos/name` primeiro, fallback `APP_DIR/name`; `INDEX_PATH` e `ADMIN_PATH` usam isso. Mantém dev mode (arquivos em `src/`) funcionando sem mudar nada
+- `_ip_lan()` — truque clássico de socket UDP (conecta em `8.8.8.8:80` sem enviar nada, lê `getsockname()`) pra descobrir IP da LAN sem DNS
+- `main()`: banner redesenhado com alinhamento fixo em 68 colunas, mostra URL de rede quando disponível com comentário "(use esta URL no tablet do palestrante)"
+- Onboarding: `abrir_path = "/admin" if not PALESTRANTES else "/"` — primeira execução leva direto pra configuração
+
+**`scripts/build.bat`:**
+- Auto-gera `assets/icon.ico` se faltar (chamando `python scripts/gerar_icone.py`)
+- PyInstaller com `--icon`, `--specpath build`, `--distpath dist/tmp`
+- Depois do compile, monta `dist/Apresentador vMix/` + `recursos/`, move o exe, copia HTMLs, ícone, LEIA-ME, config pré-preenchido
+- Remove `dist/tmp` no final — só sobra a pasta final pronta pra copiar
+
+**`installer/LEIA-ME.txt`:**
+- ~90 linhas em ASCII puro (compatível com CMD/Notepad sem cedilha quebrada)
+- Fluxo em 3 passos + seção de troubleshooting ("banner vermelho", "card vermelho", "slides não sincronizam") + lista de formatos aceitos + onde ficam os logs
+- Linguagem direta, sem jargão técnico além do mínimo necessário
+
+**`meta viewport` nos HTMLs:** `<meta name="viewport" content="width=device-width, initial-scale=1">` — elimina o único Error do lint do VS Code (antes deixava os nomes em vermelho no explorer) e garante rendering correto em tablet.
+
+**Validação:**
+- PyInstaller build concluiu em ~7.5s
+- Exe portable (8.2 MB) sobe em `localhost:5001`, serve `/admin` (recursos/admin.html), `/` (recursos/index.html), `/admin/api/config` com o config.json da raiz
+- Primeiro boot sem palestrantes abre direto o `/admin` no browser
+- Pasta final 8.3 MB pronta pra copiar ou zipar
+
 ## v0.3.0 — 2026-04-19
 
 **Resumo:** release "à prova de show ao vivo" — fecha as 10 rachaduras identificadas após v0.2.0. Coberto por 60 testes stdlib (24 novos).
