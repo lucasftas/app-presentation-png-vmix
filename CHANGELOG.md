@@ -3,6 +3,35 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-04-19
+
+### Added
+- **Tray icon na bandeja do Windows** (pystray + Pillow): ícone do app perto do relógio, menu contextual com clique direito
+- Menu dinâmico do tray (reconstruído a cada abertura):
+  - Status: `✓ vMix host:port` (clique abre dialog tkinter pra editar IP/porta)
+  - Rede LAN: `🌐 Rede: http://IP:5000/` (clique copia URL pra clipboard)
+  - **Por palestrante configurado**: label com posição `X / Y` (prefixo `●` em verde quando ao vivo), + 3 ações `▶ Avançar` / `◀ Voltar` / `↺ Reset`
+  - `🖼️ Abrir Modo Apresentador` (default do clique simples no ícone)
+  - `⚙️ Abrir Dashboard (admin)`
+  - Submenu `🛠️ Configs`: abrir pasta de logs, liberar porta 5000 no firewall (UAC), reiniciar servidor, sair
+- Dialog tkinter pra editar `host:port` do vMix direto do tray, com `parse_host_port()` aceitando `host`, `host:port` ou `http://host:port/`
+- Helper `copiar_para_clipboard()` via tkinter (sem dep extra)
+- Liberação de porta no firewall via `netsh` + `ShellExecuteW runas` (UAC prompt)
+- **Notificações Windows** (via `icon.notify`) em eventos críticos:
+  - 🔴 vMix offline há >10s
+  - 🟢 vMix voltou online
+  - 🟢 Palestrante X entrou no ar
+  - ⚪ Palestrante saiu do ar
+- `MonitorNotificacoes` em thread daemon polando `compute_state()` a cada 1.5s
+- `_shutdown_server()` parando o HTTP server limpo quando user clica Sair/Reiniciar no tray
+- 18 testes novos em `tests/test_tray.py` cobrindo parse, menu builder, posição e helpers
+
+### Changed
+- `main()` agora roda o HTTP server em thread daemon e o **tray bloqueia a main thread** (pystray.Icon.run); fallback pra bloqueio no serve_forever se pystray não estiver disponível
+- `scripts/build.bat`: `--noconsole` (sem janela CMD preta), `--hidden-import pystray._win32`, `--hidden-import PIL`
+- Exe passou de 8.3 MB → 29 MB (pystray + tkinter + Pillow embutidos) — ainda perfeitamente portable
+- `requirements.txt` ganha `pystray>=0.19.5` + `Pillow>=10.0` como runtime (antes eram só build)
+
 ## [0.5.1] — 2026-04-19
 
 ### Added

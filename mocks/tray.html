@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock — Menu Tray (Apresentador vMix)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: linear-gradient(135deg, #0078d4 0%, #1a6bc7 100%);
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.08), transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(255,255,255,0.05), transparent 50%);
+    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+    overflow: hidden;
+    color: #fff;
+  }
+
+  /* Barra de tarefas simulando Windows 11 */
+  .taskbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 48px;
+    background: rgba(32, 32, 32, 0.85);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+  }
+  .tray-area {
+    position: absolute;
+    right: 12px;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+  }
+  .tray-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .tray-icon:hover { background: rgba(255,255,255,0.08); }
+  .tray-icon.app {
+    background: linear-gradient(180deg, #e6e6e6 0%, #c8cdd4 100%);
+    border: 1px solid #8a8a8a;
+    cursor: pointer;
+    position: relative;
+  }
+  .tray-icon.app::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 5px;
+    height: 4px;
+    border: 1.2px solid #2ea043;
+    border-radius: 1px;
+  }
+  .tray-icon.app::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    border: 1.2px solid #f2b705;
+    border-radius: 1px;
+  }
+  .tray-icon.app.pulse { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    50% { box-shadow: 0 0 8px 2px rgba(46, 160, 67, 0.6); }
+  }
+  .clock {
+    font-size: 12px;
+    color: #ddd;
+    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+    line-height: 1.2;
+    text-align: right;
+    padding-right: 4px;
+  }
+  .clock .date { font-size: 11px; color: #aaa; }
+
+  /* Menu contextual (style Windows 11) */
+  .context-menu {
+    position: fixed;
+    bottom: 56px;
+    right: 12px;
+    width: 360px;
+    max-height: 82vh;
+    overflow-y: auto;
+    background: rgba(43, 43, 43, 0.96);
+    -webkit-backdrop-filter: blur(32px);
+    backdrop-filter: blur(32px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 6px 0;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+    color: #eee;
+    font-size: 13px;
+    z-index: 2;
+  }
+  .ctx-header {
+    padding: 10px 14px 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 13px;
+    color: #fff;
+  }
+  .ctx-header .logo {
+    width: 20px; height: 20px;
+    border-radius: 3px;
+    background: #2b2b2b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 3px;
+  }
+  .ctx-header .logo .s-atual {
+    width: 4px; height: 4px;
+    border: 1px solid #2ea043;
+    border-radius: 1px;
+  }
+  .ctx-header .logo .s-prox {
+    width: 8px; height: 6px;
+    border: 1px solid #f2b705;
+    border-radius: 1px;
+  }
+  .ctx-header .ver { color: #888; font-weight: 400; margin-left: auto; }
+
+  .ctx-sep {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 4px 6px;
+  }
+
+  .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    font-size: 13px;
+    line-height: 1.3;
+  }
+  .ctx-item:hover:not(.disabled):not(.label) { background: rgba(255,255,255,0.06); }
+  .ctx-item.disabled, .ctx-item.label { cursor: default; }
+  .ctx-item .icon {
+    width: 18px;
+    text-align: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .ctx-item .text { flex: 1; }
+  .ctx-item .meta {
+    color: #999;
+    font-size: 11px;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .ctx-item.label { color: #c8c8c8; }
+  .ctx-item.sublabel {
+    padding: 4px 14px 4px 44px;
+    font-size: 11px;
+    color: #999;
+  }
+  .ctx-item.section-title {
+    padding: 8px 14px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #888;
+  }
+  .ctx-item .status-ok { color: #4caf50; }
+  .ctx-item .status-err { color: #f44336; }
+
+  /* Lápis de edição inline (vMix IP) */
+  .ctx-item .edit-pencil {
+    opacity: 0;
+    transition: opacity 0.15s;
+    margin-left: 6px;
+    font-size: 11px;
+    color: #8ab4f8;
+    cursor: pointer;
+  }
+  .ctx-item:hover .edit-pencil { opacity: 1; }
+  .ctx-item.editable:hover { background: rgba(138,180,248,0.08); cursor: pointer; }
+
+  /* Seta de submenu */
+  .ctx-item.has-submenu::after {
+    content: "▶";
+    font-size: 10px;
+    color: #888;
+    margin-left: auto;
+  }
+
+  /* Submenu flutuante à esquerda */
+  .submenu {
+    position: absolute;
+    bottom: 0;
+    right: 100%;
+    margin-right: 4px;
+    width: 260px;
+    background: rgba(43, 43, 43, 0.98);
+    -webkit-backdrop-filter: blur(32px);
+    backdrop-filter: blur(32px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 6px 0;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+    display: none;
+  }
+  .submenu.show { display: block; }
+
+  /* Items de ação por palestrante — indentados */
+  .ctx-item.action {
+    padding: 6px 14px 6px 44px;
+    color: #ddd;
+  }
+  .ctx-item.action .icon {
+    color: #8ab4f8;
+  }
+  .ctx-item.action.destructive .icon { color: #ec7a7a; }
+  .ctx-item.action:hover { background: rgba(138, 180, 248, 0.1); }
+
+  /* Palestrante header line */
+  .ctx-item.pal-head {
+    padding: 6px 14px;
+    background: rgba(255,255,255,0.02);
+    border-left: 2px solid transparent;
+  }
+  .ctx-item.pal-head.ao-vivo {
+    border-left-color: #2ea043;
+    background: rgba(46, 160, 67, 0.1);
+  }
+  .ctx-item.pal-head .input-num {
+    background: #444;
+    color: #fff;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    min-width: 24px;
+    text-align: center;
+  }
+  .ctx-item.pal-head.ao-vivo .input-num {
+    background: #2ea043;
+  }
+  .ctx-item.pal-head .nome {
+    font-weight: 600;
+    color: #fff;
+  }
+  .ctx-item.pal-head .posicao {
+    color: #999;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .ctx-item.pal-head.ao-vivo .posicao {
+    color: #7dd87d;
+    font-weight: 600;
+  }
+  .ctx-item.pal-head .vivo-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #2ea043;
+    box-shadow: 0 0 5px #2ea043;
+    animation: pulse 1.5s infinite;
+  }
+
+  .hint {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    background: rgba(0,0,0,0.5);
+    color: #ddd;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    max-width: 340px;
+    line-height: 1.5;
+  }
+  .hint b { color: #fff; }
+
+  /* Toast pra simular click */
+  .toast {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    background: rgba(32, 32, 32, 0.96);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #eee;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="hint">
+  <b>Mock do menu tray (Windows 11 style)</b><br>
+  Representa como vai ficar o menu ao clicar com o <b>botão direito</b> no ícone do app na bandeja. Clique nos items pra simular.<br>
+  <b>Limitação do pystray:</b> só items verticais, sem botões inline nem inputs.
+</div>
+
+<div class="context-menu">
+  <div class="ctx-header">
+    <div class="logo" aria-hidden="true">
+      <div class="s-atual"></div>
+      <div class="s-prox"></div>
+    </div>
+    Apresentador vMix
+    <span class="ver">v0.5.1</span>
+  </div>
+
+  <div class="ctx-sep"></div>
+
+  <!-- ===== STATUS ===== -->
+  <div class="ctx-item section-title">Status</div>
+  <div class="ctx-item editable" onclick="toast('Abrindo dialog: &quot;Novo IP do vMix&quot; (tkinter)')"
+       title="Clique pra alterar o IP/porta do vMix">
+    <span class="icon status-ok">●</span>
+    <span class="text">vMix</span>
+    <span class="meta">192.168.X.X:8088</span>
+    <span class="edit-pencil">✎</span>
+  </div>
+  <div class="ctx-item sublabel">Preset: Jornada Full Face 2 Edição</div>
+  <div class="ctx-item label">
+    <span class="icon">👥</span>
+    <span class="text">Tablets conectados</span>
+    <span class="meta">2</span>
+  </div>
+  <div class="ctx-item editable" onclick="toast('Copiando http://192.168.1.10:5000/ pra area de transferencia')"
+       title="Clique pra copiar URL do palestrante">
+    <span class="icon">🌐</span>
+    <span class="text">Rede local</span>
+    <span class="meta">192.168.1.10:5000</span>
+    <span class="edit-pencil">📋</span>
+  </div>
+
+  <div class="ctx-sep"></div>
+
+  <!-- ===== PALESTRANTES ===== -->
+  <div class="ctx-item section-title">Slides configurados</div>
+
+  <!-- Wagner — ao vivo -->
+  <div class="ctx-item pal-head ao-vivo">
+    <span class="vivo-dot"></span>
+    <span class="input-num">60</span>
+    <span class="nome">Wagner</span>
+    <span class="posicao">17 / 49</span>
+  </div>
+  <div class="ctx-item action" onclick="toast('▶ Avançar Wagner')">
+    <span class="icon">▶</span>
+    <span class="text">Avançar Wagner</span>
+  </div>
+  <div class="ctx-item action" onclick="toast('◀ Voltar Wagner')">
+    <span class="icon">◀</span>
+    <span class="text">Voltar Wagner</span>
+  </div>
+  <div class="ctx-item action destructive" onclick="toast('↺ Reset Wagner (slide 1)')">
+    <span class="icon">↺</span>
+    <span class="text">Reset Wagner (slide 1)</span>
+  </div>
+
+  <!-- Vinícius -->
+  <div class="ctx-item pal-head">
+    <span class="input-num">71</span>
+    <span class="nome">Vinícius</span>
+    <span class="posicao">3 / 33</span>
+  </div>
+  <div class="ctx-item action" onclick="toast('▶ Avançar Vinícius')">
+    <span class="icon">▶</span>
+    <span class="text">Avançar Vinícius</span>
+  </div>
+  <div class="ctx-item action" onclick="toast('◀ Voltar Vinícius')">
+    <span class="icon">◀</span>
+    <span class="text">Voltar Vinícius</span>
+  </div>
+  <div class="ctx-item action destructive" onclick="toast('↺ Reset Vinícius')">
+    <span class="icon">↺</span>
+    <span class="text">Reset Vinícius (slide 1)</span>
+  </div>
+
+  <!-- Camila -->
+  <div class="ctx-item pal-head">
+    <span class="input-num">73</span>
+    <span class="nome">Camila</span>
+    <span class="posicao">— / 16</span>
+  </div>
+  <div class="ctx-item action" onclick="toast('▶ Avançar Camila')">
+    <span class="icon">▶</span>
+    <span class="text">Avançar Camila</span>
+  </div>
+  <div class="ctx-item action" onclick="toast('◀ Voltar Camila')">
+    <span class="icon">◀</span>
+    <span class="text">Voltar Camila</span>
+  </div>
+  <div class="ctx-item action destructive" onclick="toast('↺ Reset Camila')">
+    <span class="icon">↺</span>
+    <span class="text">Reset Camila (slide 1)</span>
+  </div>
+
+  <div class="ctx-sep"></div>
+
+  <!-- ===== ABRIR TELAS ===== -->
+  <div class="ctx-item" onclick="toast('Abrindo modo apresentador...')">
+    <span class="icon">🖼️</span>
+    <span class="text">Abrir Modo Apresentador</span>
+  </div>
+  <div class="ctx-item" onclick="toast('Abrindo dashboard...')">
+    <span class="icon">⚙️</span>
+    <span class="text">Abrir Dashboard (admin)</span>
+  </div>
+
+  <div class="ctx-sep"></div>
+
+  <!-- ===== SUBMENU CONFIGS ===== -->
+  <div class="ctx-item has-submenu" id="configs-item"
+       onmouseenter="mostrarSubmenu(true)" onmouseleave="agendarEsconder()">
+    <span class="icon">🛠️</span>
+    <span class="text">Configs</span>
+
+    <div class="submenu" id="submenu-configs"
+         onmouseenter="mostrarSubmenu(true)" onmouseleave="agendarEsconder()">
+      <div class="ctx-item" onclick="toast('Abrindo pasta logs\\ no explorer...')">
+        <span class="icon">📂</span>
+        <span class="text">Abrir pasta de logs</span>
+      </div>
+      <div class="ctx-item" onclick="toast('Liberando porta 5000 no firewall (UAC)...')">
+        <span class="icon">🔓</span>
+        <span class="text">Liberar porta no firewall</span>
+      </div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" onclick="toast('Reiniciando servidor...')">
+        <span class="icon">🔄</span>
+        <span class="text">Reiniciar servidor</span>
+      </div>
+      <div class="ctx-item" onclick="toast('Encerrando...')">
+        <span class="icon status-err">✕</span>
+        <span class="text">Sair</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="taskbar">
+  <div class="tray-area">
+    <span class="tray-icon" title="Wi-Fi">📶</span>
+    <span class="tray-icon" title="Áudio">🔊</span>
+    <span class="tray-icon app pulse" title="Apresentador vMix — Wagner ao vivo"></span>
+    <div class="clock">
+      <div>18:42</div>
+      <div class="date">19/04/2026</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+/* Submenu Configs — abre à esquerda ao hover no item */
+let _subTimer = null;
+const _sub = document.getElementById('submenu-configs');
+function mostrarSubmenu(on) {
+  clearTimeout(_subTimer);
+  if (on) _sub.classList.add('show');
+}
+function agendarEsconder() {
+  clearTimeout(_subTimer);
+  _subTimer = setTimeout(() => _sub.classList.remove('show'), 300);
+}
+</script>
+
+</body>
+</html>
