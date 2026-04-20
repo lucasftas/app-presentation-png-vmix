@@ -432,6 +432,104 @@
   }
   @keyframes pulse { 50% { opacity: 0.4; } }
 
+  /* Projetores — lista de monitores + cards de projetores abertos */
+  .projetor-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 6px;
+    margin-bottom: 14px;
+  }
+  .projetor-section .titulo {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #9aa0a6;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .projetor-section .titulo .count {
+    background: #2a2e37;
+    color: #c8cdd4;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+  }
+  .monitores-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+  .monitor-btn {
+    background: #12141a;
+    border: 1px solid #2a2e37;
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: inherit;
+    color: inherit;
+    transition: all 0.15s;
+  }
+  .monitor-btn:hover { border-color: #8ab4f8; background: #1a1d23; }
+  .monitor-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .monitor-btn .nome {
+    font-weight: 600;
+    font-size: 13px;
+    color: #e8eaed;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .monitor-btn .primario-badge {
+    font-size: 9px;
+    background: #2a2e37;
+    color: #f2b705;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .monitor-btn .meta {
+    font-size: 11px;
+    color: #9aa0a6;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .monitor-btn.aberto {
+    border-color: #2ea043;
+    background: #14261a;
+  }
+  .monitor-btn.aberto .nome::before {
+    content: "● ";
+    color: #2ea043;
+  }
+
+  .projetor-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #14261a;
+    border: 1px solid #2ea04344;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .projetor-card .nome { color: #7dd87d; font-weight: 600; }
+  .projetor-card .meta {
+    color: #9aa0a6;
+    font-family: ui-monospace, monospace;
+  }
+  .projetor-card .spacer { flex: 1; }
+
   /* Controle de proporção do modo apresentador */
   .split-control-admin {
     display: flex;
@@ -955,6 +1053,17 @@
 <section class="section">
   <h2>Palestrantes monitorados</h2>
   <div class="section-hint">Inputs que serão reconhecidos como slideshow do palestrante. A página pública reflete estes em tempo real.</div>
+
+  <div class="projetor-section">
+    <div class="titulo">
+      Projetar em monitor
+      <span class="count" id="projetor-count">0 abertos</span>
+    </div>
+    <div class="monitores-grid" id="monitores-grid">
+      <!-- renderizado pelo JS -->
+    </div>
+    <div id="projetores-abertos"></div>
+  </div>
 
   <div class="split-control-admin" title="Muda a proporção entre slide atual e próximo no modo apresentador. Aplicado em todos os tablets via server.">
     <span class="title">Proporção ATUAL / PRÓXIMO</span>
@@ -1934,17 +2043,20 @@ async function pollTick() {
   pollingBusy = true;
   const inst = INSTANCIAS[0];
   try {
-    // Fetch vMix + health + clientes + ui_prefs em paralelo
-    const [xml, healthResp, clientesResp, prefsResp] = await Promise.all([
+    // Fetch vMix + health + clientes + ui_prefs + projetores em paralelo
+    const [xml, healthResp, clientesResp, prefsResp, projResp] = await Promise.all([
       fetchVmixXml(inst.host, inst.port),
       apiGet('health').catch(() => ({ diagnosticos: [] })),
       apiGet('clientes').catch(() => ({ clientes: [] })),
       apiGet('ui_prefs').catch(() => null),
+      apiGet('projetores').catch(() => ({ abertos: [] })),
     ]);
     atualizarClientesChip(clientesResp.clientes || []);
     if (prefsResp && prefsResp.split_ratio !== undefined) {
       sincronizarSplitComServer(prefsResp.split_ratio);
     }
+    MONITORES_STATE.abertos = projResp.abertos || [];
+    renderProjetores();
     const data = parseVmix(xml);
 
     inst.status = 'online';
@@ -2026,6 +2138,115 @@ function atualizarHeartbeat() {
 }
 // Heartbeat tick independente — mostra o tempo passando mesmo sem re-render
 setInterval(atualizarHeartbeat, 250);
+
+/* ========================================================================
+   Projetores — lista de monitores + gerencia abertura/fechamento remoto.
+   Usa /admin/api/monitors (estatico) e /admin/api/projetores (lista atual).
+   ======================================================================== */
+const MONITORES_STATE = { monitores: [], abertos: [] };
+
+async function carregarMonitores() {
+  try {
+    const r = await apiGet('monitors');
+    MONITORES_STATE.monitores = r.monitors || [];
+  } catch (e) {
+    MONITORES_STATE.monitores = [];
+  }
+}
+
+async function atualizarProjetores() {
+  try {
+    const r = await apiGet('projetores');
+    MONITORES_STATE.abertos = r.abertos || [];
+  } catch (e) {
+    MONITORES_STATE.abertos = [];
+  }
+  renderProjetores();
+}
+
+function renderProjetores() {
+  const grid = document.getElementById('monitores-grid');
+  const abertosEl = document.getElementById('projetores-abertos');
+  const countEl = document.getElementById('projetor-count');
+  if (!grid) return;
+
+  const abertos = MONITORES_STATE.abertos;
+  const abertoPorMonitor = {};
+  abertos.forEach(p => { abertoPorMonitor[p.monitor.indice] = p; });
+  countEl.textContent = `${abertos.length} aberto${abertos.length !== 1 ? 's' : ''}`;
+
+  if (!MONITORES_STATE.monitores.length) {
+    grid.innerHTML = '<div style="color:#7a808a;font-size:12px;padding:10px;">nenhum monitor detectado</div>';
+    abertosEl.innerHTML = '';
+    return;
+  }
+
+  grid.innerHTML = MONITORES_STATE.monitores.map(m => {
+    const ja = abertoPorMonitor[m.indice];
+    const primarioBadge = m.primario ? '<span class="primario-badge">primário</span>' : '';
+    if (ja) {
+      return `
+        <button class="monitor-btn aberto" type="button"
+                data-pid="${ja.pid}"
+                onclick="fecharProjetor(${ja.pid})"
+                title="Fechar projetor neste monitor">
+          <div class="nome">${escapeHtml(m.nome)} ${primarioBadge}</div>
+          <div class="meta">${m.width}×${m.height} · ${m.x},${m.y}</div>
+          <div class="meta" style="color:#7dd87d">✕ clique pra fechar</div>
+        </button>
+      `;
+    }
+    return `
+      <button class="monitor-btn" type="button"
+              data-idx="${m.indice}"
+              onclick="abrirProjetor(${m.indice})"
+              title="Abrir modo apresentador em tela cheia neste monitor">
+        <div class="nome">${escapeHtml(m.nome)} ${primarioBadge}</div>
+        <div class="meta">${m.width}×${m.height} · ${m.x},${m.y}</div>
+        <div class="meta" style="color:#8ab4f8">▶ abrir projetor aqui</div>
+      </button>
+    `;
+  }).join('');
+
+  // Botão "fechar todos" se há mais de 1
+  if (abertos.length >= 2) {
+    abertosEl.innerHTML = `
+      <button class="btn danger btn-sm" type="button" onclick="fecharTodosProjetores()">
+        ✕ fechar todos (${abertos.length})
+      </button>
+    `;
+  } else {
+    abertosEl.innerHTML = '';
+  }
+}
+
+async function abrirProjetor(monitorIdx) {
+  try {
+    await apiPost('projetor_abrir', { monitor_idx: monitorIdx });
+    // Força um refresh imediato
+    await atualizarProjetores();
+  } catch (e) {
+    alert('Erro abrindo projetor: ' + e.message);
+  }
+}
+
+async function fecharProjetor(pid) {
+  try {
+    await apiPost('projetor_fechar', { pid });
+    await atualizarProjetores();
+  } catch (e) {
+    alert('Erro fechando projetor: ' + e.message);
+  }
+}
+
+async function fecharTodosProjetores() {
+  try {
+    await apiPost('projetor_fechar', { pid: 'todos' });
+    await atualizarProjetores();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
 
 /* ========================================================================
    Controle de proporção — fonte da verdade e o config.json do server.
@@ -2134,6 +2355,7 @@ async function boot() {
   } catch (e) {
     console.warn('Não consegui carregar config:', e);
   }
+  await carregarMonitores();
   renderAll();
   pollTick();
   setInterval(pollTick, 500);

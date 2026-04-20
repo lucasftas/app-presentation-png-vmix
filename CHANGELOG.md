@@ -3,6 +3,28 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-04-20
+
+### Added
+- **"Projetar Prévia" inspirado no OBS** — abre o modo apresentador em tela cheia num monitor específico, controlado remotamente pelo admin/tray
+- **Enumeração de monitores** via `EnumDisplayMonitors`/`GetMonitorInfoW` (ctypes stdlib, sem dep nova): retorna `indice`, `nome` (ex: `\\.\DISPLAY1`), `x`, `y`, `width`, `height`, `primario`
+- **`ProjetorManager`**: abre Chrome/Edge em modo `--app=` + `--start-fullscreen` + `--window-position=X,Y` + `--window-size=W,H`, usa `--user-data-dir` isolado por monitor pra não colidir com sessão normal. Tracking por PID.
+- **Modo kiosk no index** (`?kiosk=1`): esconde cursor (`cursor: none`), esconde botões ⛶/☰ e o slider discreto, bloqueia seleção de texto — palestrante só vê o conteúdo
+- **Endpoints novos**:
+  - `GET /admin/api/monitors` → lista de monitores
+  - `GET /admin/api/projetores` → projetores abertos (polling)
+  - `POST /admin/api/projetor_abrir {monitor_idx}` → lança projetor, retorna PID
+  - `POST /admin/api/projetor_fechar {pid}` ou `{pid: "todos"}` → fecha
+- **Admin UI**: nova seção "Projetar em monitor" com cards clicáveis de cada monitor (mostra resolução + posição + badge "primário"); card fica verde quando projetor está aberto; clique alterna abrir/fechar
+- **Tray submenu**: "📺 Projetar em monitor" com um item por monitor detectado, indica `●` nos que já têm projetor, inclui "✕ Fechar todos"
+- **Detecção automática de Chrome/Edge** em `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%LocalAppData%`
+- **Shutdown limpo**: `Sair` do tray agora também fecha todos os projetores abertos
+- 7 testes novos em `tests/test_projetor.py` (abrir, fechar, fechar_todos, gc, tracking por monitor)
+
+### Changed
+- `_shutdown_server()` fecha projetores antes de parar o HTTP server
+- `/admin/api/monitors` e `/admin/api/projetores` silenciados no log (polling frequente)
+
 ## [0.7.1] — 2026-04-20
 
 ### Added

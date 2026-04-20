@@ -9,6 +9,14 @@
     /* Proporção entre slide atual e próximo (0-100). 38 = padrão. */
     --atual-ratio: 38;
   }
+
+  /* Modo kiosk (aberto via ?kiosk=1 em projetores) — esconde cursor +
+     esconde botões ⛶/☰ + bloqueia seleção de texto.
+     O operador controla tudo pelo admin/tray, o palestrante só vê o conteúdo. */
+  body.kiosk { cursor: none; -webkit-user-select: none; user-select: none; }
+  body.kiosk .hamburger-btn,
+  body.kiosk .fullscreen-btn,
+  body.kiosk .split-control { display: none !important; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     height: 100%;
@@ -590,6 +598,12 @@
 <div class="status-overlay" id="status"></div>
 
 <script>
+/* Modo kiosk: ativado via ?kiosk=1 na URL — esconde cursor e controles,
+   palestrante vê só o conteúdo. Operador controla pelo admin/tray. */
+if (new URLSearchParams(location.search).has('kiosk')) {
+  document.body.classList.add('kiosk');
+}
+
 const $ = (id) => document.getElementById(id);
 const imgAtual = $('img-atual');
 const imgProximo = $('img-proximo');
