@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.7.1 — polish visual: placeholders explícitos nos slides vazios, banner "entrando em breve" grande com contagem, clique no tray abre Dashboard, app roda discreto sem auto-abrir browser
+**Status:** ✅ v0.8.0 — **"Projetar Prévia" estilo OBS** — abre modo apresentador em tela cheia limpa no monitor escolhido (Chrome/Edge `--app` + kiosk), controlado remotamente pelo admin/tray, sem precisar mexer no monitor do palestrante
 
 ---
 
@@ -175,6 +175,10 @@ Pastas podem ser absolutas ou relativas ao `config.json`. Aceita UNC (`\\servido
 | `/admin/api/preview/img?pasta=&arq=` | GET | Serve uma imagem da pasta (com path traversal bloqueado) — pra miniatura + lightbox |
 | `/admin/api/ui_prefs` | GET/POST | Preferências de UI sincronizadas entre todos os clientes (atualmente: `split_ratio` 20-80) |
 | `/admin/api/vmix_control` | POST | Controla o vMix a partir do tablet do palestrante — `{action: "next\|prev\|goto\|reset", guid, index?}`. Valida GUID configurado + range do índice |
+| `/admin/api/monitors` | GET | Lista monitores do Windows com `indice`, `nome`, `x`, `y`, `width`, `height`, `primario` |
+| `/admin/api/projetores` | GET | Projetores abertos no momento (PID + monitor) |
+| `/admin/api/projetor_abrir` | POST | `{monitor_idx}` → abre Chrome/Edge em kiosk no monitor |
+| `/admin/api/projetor_fechar` | POST | `{pid}` ou `{pid: "todos"}` → fecha projetor(es) |
 
 ## Arquitetura de pastas
 

@@ -18,10 +18,12 @@ import json
 import logging
 import logging.handlers
 import mimetypes
+import os
 import re
 import socket
 import socketserver
 import string
+import subprocess
 import sys
 import threading
 import time
@@ -914,7 +916,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 or "/admin/api/clientes" in s
                 or "/admin/api/vmix_xml" in s
                 or "/admin/api/preview" in s
+                or "/admin/api/projetores" in s
                 or "GET /admin/api/ui_prefs" in s
+                or "GET /admin/api/monitors" in s
                 or "GET /admin/api/config" in s):
             return
         # Encaminha pro logger (console + arquivo com rotacao)
@@ -1080,6 +1084,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(get_ui_prefs())
             return
 
+        if sub == "monitors":
+            try:
+                self._send_json({"monitors": list_monitors()})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if sub == "projetores":
+            try:
+                self._send_json({"abertos": PROJETOR_MANAGER.abertos()})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
         if sub == "vmix_xml":
             # Proxy do XML bruto do vMix — fallback pro admin quando CORS
             # direto nao funciona (vMix em outra maquina, rede restrita etc).
@@ -1170,6 +1188,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(e)}, status=400)
             return
 
+        if sub == "projetor_abrir":
+            monitor_idx = (payload or {}).get("monitor_idx")
+            if monitor_idx is None:
+                self._send_json({"ok": False, "error": "monitor_idx obrigatorio"},
+                                 status=400)
+                return
+            try:
+                monitores = list_monitors()
+                monitor = next((m for m in monitores if m["indice"] == monitor_idx), None)
+                if not monitor:
+                    self._send_json({"ok": False, "error": f"monitor {monitor_idx} nao encontrado"},
+                                     status=404)
+                    return
+                # URL interna do proprio server — modo kiosk
+                url = f"http://localhost:{SERVER_PORT}/?kiosk=1"
+                pid = PROJETOR_MANAGER.abrir(monitor, url)
+                self._send_json({"ok": True, "pid": pid, "monitor": monitor})
+            except RuntimeError as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+
+        if sub == "projetor_fechar":
+            pid = (payload or {}).get("pid")
+            if pid == "todos":
+                n = PROJETOR_MANAGER.fechar_todos()
+                self._send_json({"ok": True, "fechados": n})
+                return
+            if not isinstance(pid, int):
+                self._send_json({"ok": False, "error": "pid invalido"}, status=400)
+                return
+            ok = PROJETOR_MANAGER.fechar(pid)
+            self._send_json({"ok": ok})
+            return
+
         if sub == "vmix_control":
             # Aceita {action: "next|prev|goto|reset", guid: "...", index: N}
             action = (payload or {}).get("action", "").lower()
@@ -1256,6 +1308,172 @@ def bind_com_fallback(porta_preferida: int, max_tentativas: int = 10) -> tuple[i
         f"Todas as portas de {porta_preferida} a "
         f"{porta_preferida + max_tentativas - 1} estao ocupadas"
     ) from ultimo_erro
+
+
+# -------------------- Multi-monitor + projetores --------------------
+
+def list_monitors() -> list[dict]:
+    """Enumera monitores do Windows via EnumDisplayMonitors (ctypes stdlib).
+
+    Retorna lista de dicts com: indice, nome, x, y, width, height, primario.
+    Em ambientes nao-Windows, retorna um monitor 'virtual' padrao pro teste
+    nao quebrar em CI Linux.
+    """
+    if sys.platform != "win32":
+        return [{"indice": 0, "nome": "DISPLAY1 (virtual)",
+                  "x": 0, "y": 0, "width": 1920, "height": 1080,
+                  "primario": True}]
+
+    import ctypes
+    from ctypes import wintypes
+
+    class RECT(ctypes.Structure):
+        _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                     ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+    class MONITORINFOEXW(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD),
+                     ("rcMonitor", RECT),
+                     ("rcWork", RECT),
+                     ("dwFlags", wintypes.DWORD),
+                     ("szDevice", wintypes.WCHAR * 32)]
+
+    MONITORINFOF_PRIMARY = 0x00000001
+    user32 = ctypes.windll.user32
+
+    monitores: list[dict] = []
+
+    MONITORENUMPROC = ctypes.WINFUNCTYPE(
+        ctypes.c_int, wintypes.HMONITOR, wintypes.HDC,
+        ctypes.POINTER(RECT), wintypes.LPARAM,
+    )
+
+    def _cb(hmon, hdc, rect_ptr, lparam):
+        info = MONITORINFOEXW()
+        info.cbSize = ctypes.sizeof(info)
+        user32.GetMonitorInfoW(hmon, ctypes.byref(info))
+        r = info.rcMonitor
+        monitores.append({
+            "indice": len(monitores),
+            "nome": info.szDevice or f"DISPLAY{len(monitores) + 1}",
+            "x": r.left,
+            "y": r.top,
+            "width": r.right - r.left,
+            "height": r.bottom - r.top,
+            "primario": bool(info.dwFlags & MONITORINFOF_PRIMARY),
+        })
+        return 1
+
+    user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(_cb), 0)
+    return monitores or [{"indice": 0, "nome": "DISPLAY1",
+                          "x": 0, "y": 0, "width": 1920, "height": 1080,
+                          "primario": True}]
+
+
+def _achar_browser_kiosk() -> str | None:
+    """Localiza executavel do Chrome ou Edge pra abrir em modo kiosk."""
+    candidatos = [
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for c in candidatos:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+class ProjetorManager:
+    """Gerencia projetores (janelas de browser em modo kiosk espalhadas nos
+    monitores). Rastreia processos pra permitir fechar remotamente.
+    """
+
+    def __init__(self):
+        self._abertos: dict[int, dict] = {}  # pid -> {proc, monitor, url, aberto_em}
+        self._lock = threading.Lock()
+
+    def abrir(self, monitor: dict, url: str) -> int | None:
+        """Lanca browser em modo kiosk no monitor indicado. Retorna pid."""
+        browser = _achar_browser_kiosk()
+        if not browser:
+            raise RuntimeError("Chrome nem Edge encontrado — instale um deles")
+
+        # Um diretorio de usuario temporario por instancia evita reutilizar
+        # sessao do Chrome normal e garante que a flag --app funcione fresh.
+        user_data = os.path.join(os.environ.get("TEMP", "."),
+                                  f"apresentador_kiosk_{monitor['indice']}")
+        args = [
+            browser,
+            "--new-window",
+            f"--app={url}",
+            f"--window-position={monitor['x']},{monitor['y']}",
+            f"--window-size={monitor['width']},{monitor['height']}",
+            "--start-fullscreen",
+            "--no-first-run",
+            "--no-default-browser-check",
+            f"--user-data-dir={user_data}",
+        ]
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=0x08000000 if sys.platform == "win32" else 0,  # CREATE_NO_WINDOW
+        )
+        with self._lock:
+            self._abertos[proc.pid] = {
+                "proc": proc,
+                "pid": proc.pid,
+                "monitor": monitor,
+                "url": url,
+                "aberto_em": time.time(),
+            }
+        return proc.pid
+
+    def fechar(self, pid: int) -> bool:
+        with self._lock:
+            entry = self._abertos.pop(pid, None)
+        if not entry:
+            return False
+        try:
+            entry["proc"].terminate()
+            entry["proc"].wait(timeout=3)
+        except Exception:
+            try:
+                entry["proc"].kill()
+            except Exception:
+                pass
+        return True
+
+    def fechar_todos(self) -> int:
+        with self._lock:
+            pids = list(self._abertos.keys())
+        n = 0
+        for pid in pids:
+            if self.fechar(pid):
+                n += 1
+        return n
+
+    def gc(self) -> None:
+        """Remove do tracking processos que morreram (crash, usuario fechou)."""
+        with self._lock:
+            mortos = [pid for pid, e in self._abertos.items()
+                      if e["proc"].poll() is not None]
+            for pid in mortos:
+                self._abertos.pop(pid, None)
+
+    def abertos(self) -> list[dict]:
+        self.gc()
+        with self._lock:
+            return [
+                {"pid": e["pid"], "monitor": e["monitor"],
+                 "url": e["url"], "aberto_em": e["aberto_em"]}
+                for e in self._abertos.values()
+            ]
+
+
+PROJETOR_MANAGER = ProjetorManager()
 
 
 class SingleInstance:
@@ -1393,8 +1611,12 @@ _server_ref: "ThreadingServer | None" = None
 
 
 def _shutdown_server() -> None:
-    """Para o HTTP server limpo. Chamado pelo tray (Sair/Reiniciar)."""
+    """Para o HTTP server limpo + fecha projetores abertos. Chamado pelo tray."""
     global _server_ref
+    try:
+        PROJETOR_MANAGER.fechar_todos()
+    except Exception:
+        pass
     if _server_ref is not None:
         try:
             _server_ref.shutdown()

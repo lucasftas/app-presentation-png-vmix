@@ -269,6 +269,44 @@ def _slide_action(server_module, guid: str, acao: str):
     return _cb
 
 
+def _abrir_projetor(server_module, monitor_idx: int):
+    def _cb(icon=None, item=None):
+        try:
+            monitores = server_module.list_monitors()
+            monitor = next((m for m in monitores if m["indice"] == monitor_idx), None)
+            if not monitor:
+                return
+            url = f"http://localhost:{server_module.SERVER_PORT}/?kiosk=1"
+            server_module.PROJETOR_MANAGER.abrir(monitor, url)
+            try:
+                icon.notify(f"Projetor aberto em {monitor['nome']}", "Apresentador vMix")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                icon.notify(f"Erro: {e}", "Apresentador vMix")
+            except Exception:
+                pass
+    return _cb
+
+
+def _fechar_projetor(server_module, pid: int):
+    def _cb(icon=None, item=None):
+        server_module.PROJETOR_MANAGER.fechar(pid)
+    return _cb
+
+
+def _fechar_todos_projetores(server_module):
+    def _cb(icon=None, item=None):
+        n = server_module.PROJETOR_MANAGER.fechar_todos()
+        try:
+            icon.notify(f"{n} projetor{'es' if n != 1 else ''} fechado{'s' if n != 1 else ''}",
+                         "Apresentador vMix")
+        except Exception:
+            pass
+    return _cb
+
+
 # -------------------- Montagem do menu --------------------
 
 def _status_label(server_module) -> str:
@@ -323,6 +361,47 @@ def montar_menu_items(server_module, icon=None, shutdown_fn=None):
                                    default=True))
     items.append(pystray.MenuItem("🖼️  Abrir Modo Apresentador",
                                    _abrir_apresentador(server_module)))
+
+    # ===== Submenu Projetar em monitor =====
+    try:
+        monitores = server_module.list_monitors()
+    except Exception:
+        monitores = []
+    try:
+        abertos = server_module.PROJETOR_MANAGER.abertos()
+    except Exception:
+        abertos = []
+    aberto_por_monitor = {p["monitor"]["indice"]: p for p in abertos}
+
+    proj_items = []
+    for m in monitores:
+        nome = m["nome"]
+        dim = f"{m['width']}×{m['height']}"
+        primario = " (primário)" if m["primario"] else ""
+        ja = aberto_por_monitor.get(m["indice"])
+        if ja:
+            # Ja aberto — clicar fecha
+            proj_items.append(pystray.MenuItem(
+                f"● {nome}{primario} — {dim}  (fechar)",
+                _fechar_projetor(server_module, ja["pid"]),
+            ))
+        else:
+            proj_items.append(pystray.MenuItem(
+                f"▶ {nome}{primario} — {dim}",
+                _abrir_projetor(server_module, m["indice"]),
+            ))
+    if abertos:
+        proj_items.append(pystray.Menu.SEPARATOR)
+        proj_items.append(pystray.MenuItem(
+            f"✕ Fechar todos ({len(abertos)})",
+            _fechar_todos_projetores(server_module),
+        ))
+    if not proj_items:
+        proj_items.append(pystray.MenuItem("(nenhum monitor detectado)",
+                                             None, enabled=False))
+
+    items.append(pystray.MenuItem("📺  Projetar em monitor",
+                                    pystray.Menu(*proj_items)))
 
     # ===== Submenu Configs =====
     configs = pystray.Menu(
