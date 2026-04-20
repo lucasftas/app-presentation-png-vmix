@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Modo Apresentador</title>
 <style>
+  :root {
+    /* Proporção entre slide atual e próximo (0-100). 38 = padrão. */
+    --atual-ratio: 38;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     height: 100%;
@@ -15,14 +19,17 @@
   }
   body { display: flex; flex-direction: column; }
 
-  /* Área principal: ATUAL pequeno (esq) | PRÓXIMO grande (dir) */
+  /* Área principal: ATUAL (esq) | PRÓXIMO (dir) — proporção ajustável */
   main {
     flex: 1;
     display: grid;
-    grid-template-columns: 38fr 62fr;
-    gap: 20px;
-    padding: 20px;
+    grid-template-columns:
+      calc(var(--atual-ratio) * 1fr)
+      calc((100 - var(--atual-ratio)) * 1fr);
+    gap: 24px;
+    padding: 24px;
     min-height: 0;
+    transition: grid-template-columns 0.3s ease-out;
   }
 
   .panel { display: flex; flex-direction: column; min-height: 0; }
@@ -30,19 +37,33 @@
   .panel-header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
+    gap: 14px;
+    margin-bottom: 14px;
   }
+  /* Badges ATUAL / PRÓXIMO — escala 150% */
   .panel-header .badge {
-    font-size: 14px;
+    font-size: 21px;
     font-weight: 700;
-    letter-spacing: 2px;
-    padding: 5px 14px;
-    border-radius: 3px;
+    letter-spacing: 3px;
+    padding: 7px 20px;
+    border-radius: 4px;
     color: white;
   }
   .panel-atual .badge { background: #e63946; }
   .panel-proximo .badge { background: #f2b705; color: #1a1a1a; }
+
+  /* Número do slide ao lado do badge — proeminente (ex: 7/49) */
+  .panel-header .slide-num {
+    font-size: 24px;
+    font-weight: 700;
+    color: #333;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+  }
+  .panel-header .slide-num .total {
+    color: #888;
+    font-weight: 500;
+  }
 
   .slide-wrap {
     flex: 1;
@@ -56,13 +77,13 @@
     aspect-ratio: 16 / 9;
     max-height: 100%;
     background: #000;
-    border: 3px solid #222;
-    border-radius: 6px;
+    border: 4px solid #222;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.18);
     position: relative;
   }
   .panel-atual .slide-frame { border-color: #e63946; }
@@ -79,61 +100,101 @@
     align-items: center;
     justify-content: center;
     color: #999;
-    font-size: 18px;
+    font-size: 22px;
     font-style: italic;
     background: #000;
   }
 
-  /* Rodapé: palestrante + contador + progresso */
+  /* Rodapé — escala 150% */
   .footer {
     background: #ffffff;
     border-top: 1px solid #d9d9d9;
-    padding: 14px 24px 18px;
+    padding: 18px 32px 22px;
     flex-shrink: 0;
+    position: relative;
   }
   .footer-top {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 14px;
+    gap: 16px;
   }
   .footer .palestrante {
-    font-size: 22px;
+    font-size: 33px;
     font-weight: 600;
     color: #1a1a1a;
   }
   .footer .contador {
-    font-size: 18px;
+    font-size: 27px;
     color: #555;
     font-variant-numeric: tabular-nums;
   }
   .footer .contador strong { color: #1a1a1a; }
 
   .progress {
-    height: 8px;
+    height: 12px;
     background: #e4e4e4;
-    border-radius: 4px;
+    border-radius: 6px;
     overflow: hidden;
   }
   .progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #e63946 0%, #f2b705 100%);
-    border-radius: 4px;
+    border-radius: 6px;
     transition: width 0.25s ease-out;
     width: 0%;
   }
 
+  /* Controle deslizante da proporção — discreto no rodapé */
+  .split-control {
+    position: absolute;
+    top: 6px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #999;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    opacity: 0.18;
+    transition: opacity 0.2s;
+  }
+  .split-control:hover { opacity: 1; }
+  .split-control input[type=range] {
+    width: 140px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: #e63946;
+  }
+  .split-control .label {
+    min-width: 70px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .split-control button {
+    background: none;
+    border: 1px solid #ccc;
+    color: #666;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .split-control button:hover { background: #eee; }
+
   /* Overlay de status (vMix offline, sem palestrante ativo, etc) */
   .status-overlay {
     position: fixed;
-    top: 12px;
-    right: 12px;
+    top: 18px;
+    right: 18px;
     background: rgba(0,0,0,0.8);
     color: #fff;
-    padding: 8px 14px;
-    border-radius: 4px;
-    font-size: 13px;
-    max-width: 360px;
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-size: 17px;
+    max-width: 480px;
     z-index: 10;
     opacity: 0;
     transition: opacity 0.3s;
@@ -150,13 +211,13 @@
     right: 0;
     background: #b00020;
     color: #fff;
-    padding: 10px 16px;
-    font-size: 14px;
+    padding: 14px 20px;
+    font-size: 18px;
     font-weight: 600;
     text-align: center;
     z-index: 20;
     display: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
   }
   .offline-banner.show { display: block; }
 </style>
@@ -165,19 +226,25 @@
 
 <main>
   <div class="panel panel-atual">
-    <div class="panel-header"><span class="badge">ATUAL</span></div>
+    <div class="panel-header">
+      <span class="badge">ATUAL</span>
+      <span class="slide-num" id="num-atual">—</span>
+    </div>
     <div class="slide-wrap">
       <div class="slide-frame">
-        <img id="img-atual" alt="Slide atual" style="display:none">
+        <img id="img-atual" alt="Slide atual" hidden>
         <div class="placeholder" id="ph-atual">— aguardando —</div>
       </div>
     </div>
   </div>
   <div class="panel panel-proximo">
-    <div class="panel-header"><span class="badge">PRÓXIMO</span></div>
+    <div class="panel-header">
+      <span class="badge">PRÓXIMO</span>
+      <span class="slide-num" id="num-proximo">—</span>
+    </div>
     <div class="slide-wrap">
       <div class="slide-frame">
-        <img id="img-proximo" alt="Próximo slide" style="display:none">
+        <img id="img-proximo" alt="Próximo slide" hidden>
         <div class="placeholder" id="ph-proximo">— aguardando —</div>
       </div>
     </div>
@@ -190,6 +257,14 @@
     <div class="contador">Slide <strong id="footer-atual">—</strong> de <strong id="footer-total">—</strong></div>
   </div>
   <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+
+  <div class="split-control" title="Ajusta proporção entre slide atual e próximo. Salvo localmente.">
+    <span class="label" id="split-label">38/62</span>
+    <input type="range" id="split-slider" min="20" max="80" step="1" value="38"
+           aria-label="Proporção do slide atual"
+           title="Proporção do slide atual (% da largura). Padrão 38.">
+    <button type="button" id="split-reset" title="Restaurar padrão">reset</button>
+  </div>
 </div>
 
 <div class="offline-banner" id="offline-banner">🔴 Sem conexão com o vMix — aguarde o operador restaurar</div>
@@ -201,17 +276,56 @@ const imgAtual = $('img-atual');
 const imgProximo = $('img-proximo');
 const phAtual = $('ph-atual');
 const phProximo = $('ph-proximo');
+const numAtual = $('num-atual');
+const numProximo = $('num-proximo');
 const footerPalestrante = $('footer-palestrante');
 const footerAtual = $('footer-atual');
 const footerTotal = $('footer-total');
 const progressFill = $('progress-fill');
 const statusEl = $('status');
-
-let lastAtualUrl = null;
-let lastProximoUrl = null;
-let offlineStreak = 0;
 const offlineBanner = $('offline-banner');
 
+let offlineStreak = 0;
+
+/* ========================================================================
+   Controle de proporção — persistido em localStorage compartilhado com o admin
+   ======================================================================== */
+const SPLIT_KEY = 'presenter.split_ratio';
+const SPLIT_DEFAULT = 38;
+const splitSlider = $('split-slider');
+const splitLabel = $('split-label');
+const splitReset = $('split-reset');
+
+function aplicarSplit(ratio) {
+  const r = Math.min(80, Math.max(20, Math.round(ratio)));
+  document.documentElement.style.setProperty('--atual-ratio', r);
+  splitSlider.value = r;
+  splitLabel.textContent = `${r}/${100 - r}`;
+}
+
+function lerSplit() {
+  const v = parseInt(localStorage.getItem(SPLIT_KEY) || SPLIT_DEFAULT, 10);
+  return isNaN(v) ? SPLIT_DEFAULT : v;
+}
+
+splitSlider.addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10);
+  aplicarSplit(v);
+  localStorage.setItem(SPLIT_KEY, String(v));
+});
+splitReset.addEventListener('click', () => {
+  localStorage.removeItem(SPLIT_KEY);
+  aplicarSplit(SPLIT_DEFAULT);
+});
+// Cross-tab sync: admin salvou → index reflete
+window.addEventListener('storage', (e) => {
+  if (e.key === SPLIT_KEY) aplicarSplit(parseInt(e.newValue || SPLIT_DEFAULT, 10));
+});
+aplicarSplit(lerSplit());
+
+/* ========================================================================
+   Polling do /state
+   ======================================================================== */
 function atualizarOfflineBanner(estaOffline) {
   if (estaOffline) offlineStreak++;
   else offlineStreak = 0;
@@ -223,9 +337,7 @@ function showStatus(msg, erro = false) {
   statusEl.classList.toggle('erro', erro);
   statusEl.classList.add('show');
 }
-function hideStatus() {
-  statusEl.classList.remove('show');
-}
+function hideStatus() { statusEl.classList.remove('show'); }
 
 function setImg(imgEl, phEl, url, phText = '—') {
   if (url) {
@@ -233,12 +345,12 @@ function setImg(imgEl, phEl, url, phText = '—') {
       imgEl.dataset.src = url;
       imgEl.src = url;
     }
-    imgEl.style.display = '';
+    imgEl.hidden = false;
     phEl.style.display = 'none';
   } else {
     imgEl.removeAttribute('src');
     imgEl.dataset.src = '';
-    imgEl.style.display = 'none';
+    imgEl.hidden = true;
     phEl.textContent = phText;
     phEl.style.display = '';
   }
@@ -261,6 +373,8 @@ async function tick() {
       showStatus(s.mensagem || 'Aguardando palestrante...');
       setImg(imgAtual, phAtual, null, '— sem slide ativo —');
       setImg(imgProximo, phProximo, null, '— sem slide ativo —');
+      numAtual.innerHTML = '—';
+      numProximo.innerHTML = '—';
       footerPalestrante.textContent = s.palestrante || '—';
       footerAtual.textContent = '—';
       footerTotal.textContent = '—';
@@ -271,6 +385,15 @@ async function tick() {
     hideStatus();
     setImg(imgAtual, phAtual, s.atual_url);
     setImg(imgProximo, phProximo, s.proximo_url, '— fim da apresentação —');
+
+    // Números grandes ao lado dos slides
+    numAtual.innerHTML = `${s.indice}<span class="total"> / ${s.total}</span>`;
+    const proxIdx = s.indice + 1;
+    if (proxIdx <= s.total) {
+      numProximo.innerHTML = `${proxIdx}<span class="total"> / ${s.total}</span>`;
+    } else {
+      numProximo.innerHTML = `<span class="total">—</span>`;
+    }
 
     footerPalestrante.textContent = s.palestrante;
     footerAtual.textContent = String(s.indice);
