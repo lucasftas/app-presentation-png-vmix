@@ -11,6 +11,25 @@
 - [x] Criação do repositório privado no GitHub (`app-presentation-png-vmix`)
 - [x] Primeiro commit e push para `main`
 
+## 2026-04-19 — polimento UX v0.5.0 (layout, cores, preview, sync, menu hambúrguer)
+
+- [x] User pediu: layout 150%, número do slide ao lado do badge, slider de proporção (discreto index + explícito admin), dúvida sobre Preview do vMix
+- [x] Resposta sobre Preview: vMix expõe `<preview>N</preview>` mas só pro input inteiro, não slides dentro de uma Photos; útil só se user quisesse "X entrando em breve" baseado em quem está em Preview
+- [x] Ajustes adicionais do user: swap de cores (atual=verde em vez de vermelho, progresso=azul em vez de vermelho→amarelo, vermelho reservado pra alerta), banner offline empurra (não sobrepõe), mini preview 16:9 "real" + confirmação de aplicado, "FIM" no canvas do próximo no último slide, preview palestrante usando nome configurado no admin
+- [x] Ícone regerado com novas cores (verde/amarelo/azul)
+- [x] Backend TDD: `ui_prefs` + `preview_palestrante` no `compute_state` (9 testes novos, total 69 verdes)
+- [x] Frontend index: escala 150%, flex em vez de grid (corrigiu layout empilhado), `--atual-ratio` em `flex-grow`, banners de fluxo normal que empurram, classe `.fim` com fundo da página e "FIM" 72px
+- [x] Frontend admin: mini preview 16:9 com `box-shadow: inset` pra borda colorida sem aumentar tamanho, `.split-applied` com feedback verde, POST debounce 350ms, polling de `ui_prefs`
+- [x] Fix visual: `.slide-frame` estava causando letterbox lateral preto com PNGs 1920×1080; agora `max-width/max-height` + `aspect-ratio: 16/9` + `background: transparent`
+- [x] Layout empilhado verticalmente (bug `calc(X * 1fr)` em Chromium); migrado pra `display: flex` com `flex-grow: var(--atual-ratio)`
+- [x] Validação real: user testou o slider, monitor registrou 20+ POSTs `/ui_prefs` todos 200
+- [x] **Plus — menu hambúrguer no index**: topo-direito, 4 controles (prev/next/goto com validação inteiro+range/reset), status colorido temporário, fecha com click-fora/ESC
+- [x] Backend `vmix_control` (helper + rota `POST /admin/api/vmix_control`) chama vMix API `NextPicture`/`PreviousPicture`/`SelectIndex`; validação rejeita GUID não-configurado e índice fora do range antes de chamar o vMix
+- [x] `/state` agora inclui `guid` quando ativo pro frontend identificar qual input controlar
+- [x] End-to-end: next/prev/goto 5/reset todos 200 no vMix real; goto 9999 rejeitado com 400 "index fora do range (1 a 50)"
+- [x] User testou o menu hambúrguer: 10+ POSTs `/vmix_control` registrados, todos 200
+- [x] Release v0.5.0 (filé)
+
 ## 2026-04-19 — distribuição portable v0.4.0 (ícone + estrutura amigável)
 
 - [x] Conversa sobre distribuição: portable zip como primário (padrão da indústria em broadcast — Companion, OBS, Stream Deck), Inno Setup opcional futuramente

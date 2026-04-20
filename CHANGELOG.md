@@ -3,6 +3,41 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-04-19
+
+### Added
+- **Menu hambúrguer no index** (topo direito) com controles do slideshow:
+  - **◀ Anterior** / **Próximo ▶** (verde)
+  - **Campo "Ir pro slide"** com validação inteiro + range (1 a N, destaca borda vermelha se inválido; Enter envia; auto-disabled quando fora do range ou sem palestrante ativo)
+  - **↺ Reiniciar** (volta pro primeiro slide)
+  - Status colorido (verde ok / vermelho erro) que some em 2.5s
+  - Fecha clicando fora, no próprio botão ☰ ou tecla ESC
+- `vmix_control(funcao, guid, value)` — helper que chama a API HTTP do vMix (`NextPicture`, `PreviousPicture`, `SelectIndex`)
+- Endpoint `POST /admin/api/vmix_control` aceitando `{action: "next|prev|goto|reset", guid, index?}` com validação: GUID deve estar configurado, index inteiro dentro do range da pasta
+- Campo `guid` no retorno de `/state` quando ativo — frontend usa pra saber qual input controlar
+- Layout do modo apresentador escalado 150% — badges ATUAL/PRÓXIMO (14→21px), palestrante (22→33px), contador (18→27px), progress bar (8→12px)
+- Número do slide em grande destaque ao lado de cada badge: `7 / 49` em ATUAL, `8 / 49` em PRÓXIMO
+- Controle deslizante de proporção ATUAL/PRÓXIMO (20-80%, default 38), com discrição no rodapé do index (opacity 0.18, hover 1.0)
+- Slider explícito no dashboard com mini preview "real" 16:9 dos 2 slides (verde/amarelo) + confirmação visual "✓ aplicado" por 1.4s após salvar
+- Sync da proporção entre todos os clientes via `ui_prefs` no `config.json` — admin muda → server persiste → todos os tablets pollando `/state` aplicam em ≤ 500ms
+- Novas rotas `GET/POST /admin/api/ui_prefs` (validação + clamp 20-80)
+- Campo `preview_palestrante` no `/state` — detecta quando `<preview>N</preview>` do vMix aponta pra um input de palestrante diferente do que está em Program
+- Banner amarelo "🟡 Wagner entrando em breve" no topo do modo apresentador (empurra conteúdo, não sobrepõe) usando o nome de exibição configurado no admin
+- "FIM" grande no canvas do próximo quando o slideshow acabou — borda cinza clara, fundo cor da página, fonte 72px letter-spacing 10
+- 9 testes novos cobrindo `ui_prefs` (default, persist, clamp, preserva palestrantes) e `preview_palestrante` (diferente, igual, não-palestrante)
+
+### Changed
+- **Cores do app:** slide atual de vermelho → **verde** `#2ea043`; progress bar de vermelho→amarelo → **azul** `#3b82f6 → #0ea5e9`; vermelho reservado para alertas (banner offline, input ausente, diagnósticos falhos)
+- Ícone regerado com as novas cores (verde/amarelo/azul)
+- `cardLive` no admin: borda + sombra verde em vez de vermelha
+- `badge.program` verde no admin; dot do `live-preview` pulsa em verde
+- Banner offline mudou de `position: fixed` sobrepondo pra fluxo normal que **empurra conteúdo** (mais amigável pro palestrante)
+- Layout do `<main>` do index trocou `display: grid` com `calc(var * 1fr)` (bugava em alguns Chromium) para `display: flex` com `flex-grow: var(--atual-ratio)` — sintaxe 100% compatível
+
+### Fixed
+- Slide-frame deixava **letterbox lateral preto** com PNGs 1920×1080 porque `width: 100%` + `max-height: 100%` quebravam o aspect-ratio; agora usa só `max-width/max-height` + `aspect-ratio: 16/9`, browser escolhe a maior dimensão sem estourar, e `background: transparent` em vez de preto
+- Banner offline antes sobrepunha os slides; agora empurra
+
 ## [0.4.0] — 2026-04-19
 
 ### Added

@@ -316,6 +316,53 @@ def validar_config(new_cfg: dict) -> list[str]:
     return erros
 
 
+UI_PREFS_DEFAULTS = {"split_ratio": 38}
+
+
+def get_ui_prefs() -> dict:
+    """Retorna ui_prefs do CFG com defaults preenchidos."""
+    cur = CFG.get("ui_prefs") if isinstance(CFG.get("ui_prefs"), dict) else {}
+    out = dict(UI_PREFS_DEFAULTS)
+    for k in UI_PREFS_DEFAULTS:
+        if k in cur:
+            out[k] = cur[k]
+    return out
+
+
+def salvar_ui_prefs(novo: dict) -> None:
+    """Salva ui_prefs no config.json preservando demais campos.
+
+    Ignora chaves desconhecidas e clampa split_ratio no range [20, 80].
+    """
+    global CFG
+    if not isinstance(novo, dict):
+        raise ValueError("ui_prefs deve ser um objeto")
+
+    prefs = dict(UI_PREFS_DEFAULTS)
+    prefs.update(get_ui_prefs())  # mantem o que ja estava
+
+    if "split_ratio" in novo:
+        try:
+            v = int(novo["split_ratio"])
+        except (TypeError, ValueError):
+            raise ValueError("split_ratio deve ser numero")
+        prefs["split_ratio"] = max(20, min(80, v))
+
+    with _cfg_lock:
+        # Le do disco, atualiza campo, grava atomico
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                atual = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            atual = dict(CFG)
+        atual["ui_prefs"] = prefs
+        tmp = CONFIG_PATH.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(atual, f, ensure_ascii=False, indent=2)
+        tmp.replace(CONFIG_PATH)
+        CFG = atual
+
+
 def rescan_pasta(guid: str) -> list[str]:
     """Re-le o filesystem da pasta de um palestrante e atualiza PALESTRANTES.
 
@@ -551,6 +598,25 @@ def fetch_vmix_xml() -> ET.Element:
     return ET.fromstring(data)
 
 
+def vmix_control(funcao: str, guid: str, value: str | None = None) -> dict:
+    """Chama a API HTTP do vMix para controlar um input (next/prev/goto).
+
+    Usado pelo menu hamburguer do index para o palestrante (ou operador)
+    avancar/voltar slides sem precisar tocar no vMix.
+    """
+    if not guid:
+        raise ValueError("guid obrigatorio")
+    params = {"Function": funcao, "Input": guid}
+    if value is not None:
+        params["Value"] = str(value)
+    url = f"http://{VMIX_HOST}:{VMIX_PORT}/api/?" + urllib.parse.urlencode(params)
+    try:
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            return {"ok": True, "status": resp.status}
+    except Exception as e:
+        return {"ok": False, "erro": str(e)}
+
+
 def _input_by_num(root: ET.Element, num: str | None) -> ET.Element | None:
     if num is None:
         return None
@@ -588,18 +654,43 @@ def _find_palestrante_em(root: ET.Element, inp: ET.Element | None,
     return None
 
 
+def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> str | None:
+    """Se o input em Preview do vMix for um palestrante configurado diferente
+    do que esta no Program, retorna o nome dele. Caso contrario, None.
+    """
+    preview_num = (root.findtext("preview") or "").strip()
+    if not preview_num:
+        return None
+    preview_inp = _input_by_num(root, preview_num)
+    achado = _find_palestrante_em(root, preview_inp, PALESTRANTES)
+    if achado is None:
+        return None
+    guid_prev = achado[0]
+    if ativo_guid and guid_prev == ativo_guid:
+        return None
+    return PALESTRANTES[guid_prev][0]
+
+
 def compute_state() -> dict:
+    prefs = get_ui_prefs()
+    base = {"ui_prefs": prefs}
     try:
         root = fetch_vmix_xml()
     except Exception as e:
-        return {"ok": False, "erro": f"vMix inacessivel ({VMIX_HOST}:{VMIX_PORT}): {e}"}
+        return {**base, "ok": False,
+                "erro": f"vMix inacessivel ({VMIX_HOST}:{VMIX_PORT}): {e}"}
 
     active_num = root.findtext("active")
     input_program = _input_by_num(root, active_num)
-    if input_program is None:
-        return {"ok": True, "ativo": False, "mensagem": "Sem input em Program"}
 
-    # Prioridade: Program direto ou via overlay interno, depois overlays globais
+    # Preview do palestrante (pode existir mesmo sem ativo)
+    preview_pal = _preview_palestrante(root, None)
+
+    if input_program is None:
+        return {**base, "ok": True, "ativo": False,
+                "mensagem": "Sem input em Program",
+                "preview_palestrante": preview_pal}
+
     achado = _find_palestrante_em(root, input_program, PALESTRANTES)
 
     if achado is None:
@@ -612,21 +703,23 @@ def compute_state() -> dict:
             if achado is not None:
                 break
 
+    ativo_guid = achado[0] if achado else None
+    preview_pal = _preview_palestrante(root, ativo_guid)
+
     if achado is None:
-        return {"ok": True, "ativo": False, "mensagem": "Nenhum slide de palestrante em Program"}
+        return {**base, "ok": True, "ativo": False,
+                "mensagem": "Nenhum slide de palestrante em Program",
+                "preview_palestrante": preview_pal}
 
     guid, input_palestrante = achado
-
     nome, pasta_path, slides = PALESTRANTES[guid]
     title = input_palestrante.get("title", "")
 
-    # Match ancorado: filename exato dentro do title, desempate pelo mais longo
     idx = match_filename(title, slides)
     if idx is None:
-        return {
-            "ok": True, "ativo": False, "palestrante": nome,
-            "mensagem": f"Slide atual ('{title}') nao bateu com arquivos da pasta",
-        }
+        return {**base, "ok": True, "ativo": False, "palestrante": nome,
+                "mensagem": f"Slide atual ('{title}') nao bateu com arquivos da pasta",
+                "preview_palestrante": preview_pal}
 
     atual = slides[idx]
     proximo = slides[idx + 1] if idx + 1 < len(slides) else None
@@ -635,12 +728,15 @@ def compute_state() -> dict:
         return f"/img/{urllib.parse.quote(guid)}/{urllib.parse.quote(arq)}"
 
     return {
+        **base,
         "ok": True, "ativo": True,
         "palestrante": nome,
+        "guid": guid,
         "indice": idx + 1,
         "total": len(slides),
         "atual_url": url_img(atual),
         "proximo_url": url_img(proximo) if proximo else None,
+        "preview_palestrante": preview_pal,
     }
 
 
@@ -774,6 +870,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 or "/admin/api/clientes" in s
                 or "/admin/api/vmix_xml" in s
                 or "/admin/api/preview" in s
+                or "GET /admin/api/ui_prefs" in s
                 or "GET /admin/api/config" in s):
             return
         # Encaminha pro logger (console + arquivo com rotacao)
@@ -935,6 +1032,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"clientes": clientes_ativos(janela_s=30)})
             return
 
+        if sub == "ui_prefs":
+            self._send_json(get_ui_prefs())
+            return
+
         if sub == "vmix_xml":
             # Proxy do XML bruto do vMix — fallback pro admin quando CORS
             # direto nao funciona (vMix em outra maquina, rede restrita etc).
@@ -1015,6 +1116,55 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = json.loads(raw.decode("utf-8")) if raw else None
         except Exception as e:
             self._send_json({"ok": False, "error": f"JSON invalido: {e}"}, status=400)
+            return
+
+        if sub == "ui_prefs":
+            try:
+                salvar_ui_prefs(payload or {})
+                self._send_json({"ok": True, "ui_prefs": get_ui_prefs()})
+            except ValueError as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
+            return
+
+        if sub == "vmix_control":
+            # Aceita {action: "next|prev|goto|reset", guid: "...", index: N}
+            action = (payload or {}).get("action", "").lower()
+            guid = (payload or {}).get("guid", "").strip().lower()
+            if guid and guid not in PALESTRANTES:
+                self._send_json({"ok": False, "error": "guid nao configurado"}, status=400)
+                return
+            info = PALESTRANTES.get(guid)
+            total = len(info[2]) if info else 0
+
+            try:
+                if action == "next":
+                    r = vmix_control("NextPicture", guid)
+                elif action == "prev":
+                    r = vmix_control("PreviousPicture", guid)
+                elif action == "reset":
+                    r = vmix_control("SelectIndex", guid, "1")
+                elif action == "goto":
+                    try:
+                        idx = int((payload or {}).get("index", 0))
+                    except (TypeError, ValueError):
+                        self._send_json({"ok": False, "error": "index invalido"}, status=400)
+                        return
+                    if idx < 1 or (total and idx > total):
+                        self._send_json({
+                            "ok": False,
+                            "error": f"index fora do range (1 a {total or '?'})",
+                        }, status=400)
+                        return
+                    r = vmix_control("SelectIndex", guid, str(idx))
+                else:
+                    self._send_json({"ok": False, "error": "acao invalida"}, status=400)
+                    return
+            except ValueError as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
+                return
+
+            status = 200 if r.get("ok") else 502
+            self._send_json(r, status=status)
             return
 
         if sub == "config":

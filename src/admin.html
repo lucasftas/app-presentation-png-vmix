@@ -221,9 +221,9 @@
     background: #1e1c14;
   }
   .input-row.program {
-    border-color: #e63946;
-    background: #1e1416;
-    box-shadow: 0 0 0 1px #e6394633;
+    border-color: #2ea043;
+    background: #14201a;
+    box-shadow: 0 0 0 1px #2ea04333;
   }
   .input-row.configured {
     border-color: #4caf50;
@@ -264,7 +264,7 @@
     letter-spacing: 0.5px;
     font-weight: 600;
   }
-  .badge.program { background: #e63946; color: #fff; }
+  .badge.program { background: #2ea043; color: #fff; }
   .badge.preview { background: #f2b705; color: #111317; }
   .badge.match { background: #f2b705; color: #111317; }
   .badge.configured { background: #4caf50; color: #111317; }
@@ -294,7 +294,7 @@
   }
   .input-progress .mini-fill {
     height: 100%;
-    background: linear-gradient(90deg, #e63946, #f2b705);
+    background: linear-gradient(90deg, #3b82f6, #0ea5e9);
   }
   .input-actions { display: flex; justify-content: flex-end; }
 
@@ -427,7 +427,7 @@
   }
   .live-preview .dot {
     width: 8px; height: 8px; border-radius: 50%;
-    background: #e63946; box-shadow: 0 0 6px #e63946;
+    background: #2ea043; box-shadow: 0 0 6px #2ea043;
     animation: pulse 1.5s infinite;
   }
   @keyframes pulse { 50% { opacity: 0.4; } }
@@ -454,7 +454,7 @@
   .split-control-admin input[type=range] {
     flex: 1;
     max-width: 280px;
-    accent-color: #e63946;
+    accent-color: #3b82f6;
   }
   .split-control-admin .val {
     font-family: ui-monospace, monospace;
@@ -466,23 +466,51 @@
     padding: 4px 10px;
     border-radius: 4px;
   }
+  /* Mini preview "real" do modo apresentador: 2 retangulos 16:9
+     com borda colorida (verde atual, amarelo proximo), centralizados. */
   .split-control-admin .preview {
     display: flex;
-    gap: 3px;
-    width: 120px;
-    height: 28px;
-    border-radius: 3px;
-    overflow: hidden;
-    background: #12141a;
+    gap: 8px;
+    align-items: center;
+    width: 200px;
+    height: 60px;
+    padding: 6px;
+    background: #0a0c11;
+    border-radius: 4px;
+  }
+  .split-control-admin .preview .slot {
+    aspect-ratio: 16 / 9;
+    background: #2a2e37;
+    border-radius: 2px;
+    transition: flex 0.25s;
+    min-width: 0;
+    position: relative;
   }
   .split-control-admin .preview .slot-atual {
-    background: #e63946;
-    transition: flex 0.2s;
+    flex: 38;
+    box-shadow: inset 0 0 0 2px #2ea043;
   }
   .split-control-admin .preview .slot-proximo {
-    background: #f2b705;
-    transition: flex 0.2s;
+    flex: 62;
+    box-shadow: inset 0 0 0 2px #f2b705;
   }
+
+  /* Indicador "✓ aplicado" que aparece por 1.2s apos salvar no server */
+  .split-applied {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #14261a;
+    color: #7dd87d;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .split-applied.show { opacity: 1; }
+  .split-applied.err { background: #2a1414; color: #f28b82; }
 
   /* Banner global de status (vMix offline) */
   .global-banner {
@@ -568,8 +596,8 @@
   }
   /* Card com palestrante ao vivo */
   .card-live {
-    border-color: #e63946;
-    box-shadow: 0 0 0 1px #e6394644, 0 4px 20px rgba(230, 57, 70, 0.15);
+    border-color: #2ea043;
+    box-shadow: 0 0 0 1px #2ea04344, 0 4px 20px rgba(46, 160, 67, 0.18);
   }
 
   /* Badges de status por palestrante */
@@ -744,7 +772,7 @@
   }
   .card .mini-fill {
     height: 100%;
-    background: linear-gradient(90deg, #e63946, #f2b705);
+    background: linear-gradient(90deg, #3b82f6, #0ea5e9);
     transition: width 0.3s ease-out;
   }
   .chip-dashed {
@@ -928,17 +956,18 @@
   <h2>Palestrantes monitorados</h2>
   <div class="section-hint">Inputs que serão reconhecidos como slideshow do palestrante. A página pública reflete estes em tempo real.</div>
 
-  <div class="split-control-admin" title="Muda a proporção entre slide atual e próximo no modo apresentador. Salvo localmente no navegador.">
+  <div class="split-control-admin" title="Muda a proporção entre slide atual e próximo no modo apresentador. Aplicado em todos os tablets via server.">
     <span class="title">Proporção ATUAL / PRÓXIMO</span>
-    <div class="preview">
-      <div class="slot-atual" id="split-preview-atual"></div>
-      <div class="slot-proximo" id="split-preview-proximo"></div>
+    <div class="preview" aria-hidden="true">
+      <div class="slot slot-atual" id="split-preview-atual"></div>
+      <div class="slot slot-proximo" id="split-preview-proximo"></div>
     </div>
     <input type="range" id="admin-split-slider" min="20" max="80" step="1" value="38"
            aria-label="Proporção do slide atual no modo apresentador"
            title="20 = slide atual pequenino, 80 = slide atual dominante. Padrão: 38.">
     <span class="val" id="admin-split-val">38 / 62</span>
     <button class="btn btn-sm" type="button" id="admin-split-reset">reset</button>
+    <span class="split-applied" id="admin-split-applied">✓ aplicado</span>
   </div>
 
   <div id="cards-configurados" class="cards"></div>
@@ -1905,13 +1934,17 @@ async function pollTick() {
   pollingBusy = true;
   const inst = INSTANCIAS[0];
   try {
-    // Fetch vMix + health + clientes em paralelo
-    const [xml, healthResp, clientesResp] = await Promise.all([
+    // Fetch vMix + health + clientes + ui_prefs em paralelo
+    const [xml, healthResp, clientesResp, prefsResp] = await Promise.all([
       fetchVmixXml(inst.host, inst.port),
       apiGet('health').catch(() => ({ diagnosticos: [] })),
       apiGet('clientes').catch(() => ({ clientes: [] })),
+      apiGet('ui_prefs').catch(() => null),
     ]);
     atualizarClientesChip(clientesResp.clientes || []);
+    if (prefsResp && prefsResp.split_ratio !== undefined) {
+      sincronizarSplitComServer(prefsResp.split_ratio);
+    }
     const data = parseVmix(xml);
 
     inst.status = 'online';
@@ -1995,43 +2028,92 @@ function atualizarHeartbeat() {
 setInterval(atualizarHeartbeat, 250);
 
 /* ========================================================================
-   Controle de proporção — mesmo localStorage key que o index.html usa.
-   Mudanças aqui propagam pro index aberto via storage event (cross-tab).
+   Controle de proporção — fonte da verdade e o config.json do server.
+   Admin muda → POST /admin/api/ui_prefs → server persiste → todos os
+   tablets pollando /state recebem e aplicam. Feedback visual de "aplicado"
+   quando o proximo poll confirma a mudanca.
    ======================================================================== */
-const SPLIT_KEY = 'presenter.split_ratio';
 const SPLIT_DEFAULT = 38;
 const splitSliderAdmin = document.getElementById('admin-split-slider');
 const splitValAdmin = document.getElementById('admin-split-val');
 const splitPrevAtual = document.getElementById('split-preview-atual');
 const splitPrevProximo = document.getElementById('split-preview-proximo');
 const splitResetAdmin = document.getElementById('admin-split-reset');
+const splitApplied = document.getElementById('admin-split-applied');
 
-function aplicarSplitAdmin(ratio) {
-  const r = Math.min(80, Math.max(20, Math.round(ratio)));
+let _adminSplitAtual = SPLIT_DEFAULT;
+let _adminSplitPendente = null;   // valor enviado esperando confirmacao
+let _adminSplitDirty = false;
+let _adminSplitTimer = null;
+
+function renderSplitPreview(r) {
   splitSliderAdmin.value = r;
   splitValAdmin.textContent = `${r} / ${100 - r}`;
   splitPrevAtual.style.flex = r;
   splitPrevProximo.style.flex = (100 - r);
 }
 
-function lerSplitAdmin() {
-  const v = parseInt(localStorage.getItem(SPLIT_KEY) || SPLIT_DEFAULT, 10);
-  return isNaN(v) ? SPLIT_DEFAULT : v;
+function aplicarSplitAdmin(ratio) {
+  const r = Math.min(80, Math.max(20, Math.round(ratio)));
+  _adminSplitAtual = r;
+  if (document.activeElement !== splitSliderAdmin) renderSplitPreview(r);
+  else { splitValAdmin.textContent = `${r} / ${100 - r}`;
+         splitPrevAtual.style.flex = r; splitPrevProximo.style.flex = (100 - r); }
+}
+
+function mostrarAplicado(ok = true) {
+  splitApplied.classList.toggle('err', !ok);
+  splitApplied.textContent = ok ? '✓ aplicado' : '✕ falha ao salvar';
+  splitApplied.classList.add('show');
+  setTimeout(() => splitApplied.classList.remove('show'), 1400);
+}
+
+async function salvarSplit(r) {
+  _adminSplitPendente = r;
+  try {
+    const resp = await fetch('/admin/api/ui_prefs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({split_ratio: r}),
+    });
+    const data = await resp.json();
+    if (resp.ok && data.ok) mostrarAplicado(true);
+    else mostrarAplicado(false);
+  } catch (e) {
+    mostrarAplicado(false);
+  } finally {
+    _adminSplitDirty = false;
+  }
 }
 
 splitSliderAdmin.addEventListener('input', (e) => {
   const v = parseInt(e.target.value, 10);
+  _adminSplitDirty = true;
   aplicarSplitAdmin(v);
-  localStorage.setItem(SPLIT_KEY, String(v));
+  clearTimeout(_adminSplitTimer);
+  _adminSplitTimer = setTimeout(() => salvarSplit(_adminSplitAtual), 350);
 });
 splitResetAdmin.addEventListener('click', () => {
-  localStorage.removeItem(SPLIT_KEY);
+  _adminSplitDirty = true;
   aplicarSplitAdmin(SPLIT_DEFAULT);
+  salvarSplit(SPLIT_DEFAULT);
 });
-window.addEventListener('storage', (e) => {
-  if (e.key === SPLIT_KEY) aplicarSplitAdmin(parseInt(e.newValue || SPLIT_DEFAULT, 10));
-});
-aplicarSplitAdmin(lerSplitAdmin());
+
+// Puxa valor inicial do server
+(async () => {
+  try {
+    const prefs = await apiGet('ui_prefs');
+    aplicarSplitAdmin(prefs.split_ratio ?? SPLIT_DEFAULT);
+  } catch (e) {
+    aplicarSplitAdmin(SPLIT_DEFAULT);
+  }
+})();
+
+// Sincroniza com o server a cada poll — se outro client alterou, reflete
+function sincronizarSplitComServer(ratio) {
+  if (ratio === undefined || _adminSplitDirty) return;
+  if (ratio !== _adminSplitAtual) aplicarSplitAdmin(ratio);
+}
 
 /* ========================================================================
    BOOT — carrega config do server, popula instância/palestrantes, inicia polling

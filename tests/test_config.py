@@ -144,6 +144,65 @@ class SalvarConfigTests(unittest.TestCase):
             self.assertTrue(len(erros) >= 2)
 
 
+class UiPrefsTests(unittest.TestCase):
+    """Fase v0.5: preferencias de UI persistidas no config.json."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.pasta_ok = self.root / "slides"
+        make_images(self.pasta_ok, ["a.png"])
+        self.config_path = self.root / "config.json"
+        self.config_path.write_text(json.dumps({
+            "vmix": {"host": "localhost", "port": 8088},
+            "server_port": 5000,
+            "palestrantes": [],
+        }, ensure_ascii=False), encoding="utf-8")
+
+        self._orig_cfg_path = server.CONFIG_PATH
+        self._orig_cfg = server.CFG
+        server.CONFIG_PATH = self.config_path
+        # Reseta CFG pra um config sem ui_prefs (senao herda do config.json real)
+        server.CFG = {"vmix": {}, "server_port": 5000, "palestrantes": []}
+
+    def tearDown(self):
+        server.CONFIG_PATH = self._orig_cfg_path
+        server.CFG = self._orig_cfg
+        self.tmp.cleanup()
+
+    def test_get_ui_prefs_default_quando_ausente(self):
+        prefs = server.get_ui_prefs()
+        self.assertEqual(prefs["split_ratio"], 38)
+
+    def test_salvar_ui_prefs_persiste_no_config(self):
+        server.salvar_ui_prefs({"split_ratio": 55})
+        lido = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(lido["ui_prefs"]["split_ratio"], 55)
+        # E atualiza CFG em memoria
+        self.assertEqual(server.CFG["ui_prefs"]["split_ratio"], 55)
+
+    def test_salvar_ui_prefs_clampa_fora_do_range(self):
+        server.salvar_ui_prefs({"split_ratio": 150})
+        self.assertEqual(server.get_ui_prefs()["split_ratio"], 80)
+        server.salvar_ui_prefs({"split_ratio": 5})
+        self.assertEqual(server.get_ui_prefs()["split_ratio"], 20)
+
+    def test_salvar_ui_prefs_ignora_campos_desconhecidos(self):
+        server.salvar_ui_prefs({"split_ratio": 50, "foo_bar": "xyz"})
+        prefs = server.get_ui_prefs()
+        self.assertEqual(prefs["split_ratio"], 50)
+        self.assertNotIn("foo_bar", prefs)
+
+    def test_salvar_ui_prefs_nao_destroi_palestrantes(self):
+        # Salva palestrantes primeiro
+        server.CFG["palestrantes"] = [{"nome": "X", "guid": "abc", "pasta": "p"}]
+        self.config_path.write_text(json.dumps(server.CFG, ensure_ascii=False), encoding="utf-8")
+        server.salvar_ui_prefs({"split_ratio": 60})
+        lido = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(lido["palestrantes"]), 1)
+        self.assertEqual(lido["ui_prefs"]["split_ratio"], 60)
+
+
 class CarregarConfigRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

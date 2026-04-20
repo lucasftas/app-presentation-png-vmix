@@ -1,5 +1,55 @@
 # Implementations
 
+## v0.5.0 — 2026-04-19
+
+**Resumo:** release de polimento UX — layout do modo apresentador escala 150%, controle deslizante de proporção sincronizado entre todos os tablets via server, banner "entrando em breve" usando Preview do vMix, "FIM" explícito quando acaba o slideshow, paleta reorganizada (atual=verde, progresso=azul, vermelho só pra alerta). Coberto por 69 testes stdlib (9 novos).
+
+**Menu de controle do slideshow (novo em v0.5):**
+- `vmix_control(funcao, guid, value=None)` — helper stdlib que monta a URL `http://vmix/api/?Function=...&Input=...&Value=...` e chama via `urllib.request`. Captura exceções (rede, vMix offline) em `{ok: false, erro: str}`
+- Rota `POST /admin/api/vmix_control` com body `{action, guid, index?}` — mapeia `action` pra `NextPicture`/`PreviousPicture`/`SelectIndex`; valida que `guid` está em `PALESTRANTES`; `index` inteiro 1 ≤ n ≤ total; 400 com mensagem descritiva em caso de erro
+- Campo `guid` no retorno de `/state` quando `ativo` — usado pelo frontend pra identificar qual input controlar
+- Frontend `index.html`: botão `.hamburger-btn` (fixed top-right, ☰ branco), painel `.menu-panel` com 3 linhas (prev/next, goto input+btn, reset), status colorido com timeout 2.5s, fecha via click-fora/click-botão/ESC, `_stateAtual` armazena último `/state` pra saber guid e total
+- Validação frontend: `Number.isInteger(n) && n >= 1 && n <= total` toggle `.invalid` e `btn-goto.disabled`; Enter submete; input `type="number" min="1" step="1" inputmode="numeric"`
+- Botões `.btn-ctrl.primary` (verde próximo, cor do slide atual), `.btn-ctrl.reset` (vermelho discreto, único vermelho na UI fora dos alertas — semanticamente "ação destrutiva reversível")
+
+**Backend (`src/server.py`):**
+- `UI_PREFS_DEFAULTS = {"split_ratio": 38}` + `get_ui_prefs()` / `salvar_ui_prefs(novo)` com clamp 20-80 e merge que **preserva palestrantes** do config.json ao atualizar só as prefs
+- Rotas novas `GET /admin/api/ui_prefs` (silenciada no log) e `POST /admin/api/ui_prefs`
+- `compute_state()` agora inclui sempre `ui_prefs` no retorno (inclusive em erros) — clientes usam esse valor como fonte da verdade
+- `_preview_palestrante(root, ativo_guid)` — lê `<preview>N</preview>` do XML, chama `_find_palestrante_em` no input N; retorna `None` se não tiver preview, se não for palestrante ou se for o mesmo já em Program
+
+**Frontend (`src/index.html`):**
+- Variável CSS `--atual-ratio` controla a proporção; layout migrado de `display: grid` + `calc(var * 1fr)` (bugava em Chromium) para `display: flex` com `flex-grow: var(--atual-ratio)` / `calc(100 - var(--atual-ratio))` — sintaxe universal
+- `.slide-frame`: removido `width: 100%` + `background: #000` que causavam letterbox lateral com PNGs 1920×1080; agora `max-width/max-height: 100%` + `aspect-ratio: 16/9` + `background: transparent`
+- Escala 150%: badges 14→21px, palestrante 22→33, contador 18→27, progress 8→12, padding 20→24
+- `.slide-num` grande ao lado do badge (`7 / 49`)
+- `.panel-proximo.fim .slide-frame` — quando último slide, fundo `#f2f2f2` (cor da página), borda cinza claro `#c8cdd4`, placeholder "FIM" em 72px 800-weight letter-spacing 10
+- Slider discreto no rodapé (`opacity: 0.18` / hover `1.0`), debounce 400ms, POST pro server
+- `aplicarSplitDoServer(ratio)` respeita flag `_splitDirty` — enquanto user arrasta, ignora polling pra evitar race
+- Banner offline virou fluxo normal (flex child, `display: none/block`); novo `.preview-banner` amarelo usando mesmo mecanismo de push
+
+**Frontend (`src/admin.html`):**
+- Controle "PROPORÇÃO ATUAL / PRÓXIMO" na seção top dos palestrantes com:
+  - Mini preview 16:9 — `<div class="preview">` com 2 `.slot` lado-a-lado, `aspect-ratio: 16/9`, `box-shadow: inset 0 0 0 2px <cor>` em vez de `border` (não estoura o tamanho), `flex: var(--ratio)`
+  - Badge `.split-applied` que aparece 1.4s com "✓ aplicado" (ou vermelho se erro)
+  - POST com debounce 350ms, `_adminSplitDirty` evita overwrite pelo polling enquanto user arrasta
+- `pollTick` agora fetcha `ui_prefs` em paralelo e chama `sincronizarSplitComServer` — cross-device sync real
+- Paleta nova: `#2ea043` (verde) em `.badge.program`, `.card-live`, `.input-row.program`, `.live-preview .dot`; `#3b82f6`→`#0ea5e9` (gradient azul) em `.card .mini-fill`, `.input-progress .mini-fill`, `accent-color` dos sliders
+
+**Ícone (`scripts/gerar_icone.py`):**
+- `GREEN = (0x2E, 0xA0, 0x43)` substitui `RED` no slide atual
+- Barra de progresso usa `BLUE_A=(0x3B,0x82,0xF6) → BLUE_B=(0x0E,0xA5,0xE9)` em vez do antigo vermelho→amarelo
+- Vermelho totalmente removido — preservado para alertas na UI
+
+**Testes (69 total, 9 novos):**
+- `UiPrefsTests` × 5: default quando ausente, persiste, clampa fora do range, ignora campos desconhecidos, não destrói palestrantes
+- `PreviewPalestranteTests` × 4: palestrante diferente do ativo, igual ao ativo retorna None, não-palestrante retorna None, `/state` inclui `ui_prefs` default
+
+**Validação end-to-end:**
+- `POST /admin/api/ui_prefs {split_ratio: 55}` persiste, `/state` reflete imediatamente, admin mostra "✓ aplicado"
+- `/state` detectou `preview_palestrante: "003 - Vinícius"` porque operador tinha input 79 em Preview no vMix
+- Monitor registrou 20+ POSTs `ui_prefs` durante teste do user, todos 200
+
 ## v0.4.0 — 2026-04-19
 
 **Resumo:** release de distribuição — o app vira um portable pronto-pra-copiar com estrutura "obvia pra leigo", ícone dedicado representando o próprio layout do produto, onboarding automático e banner de boot que diz explicitamente qual URL entregar pro palestrante.

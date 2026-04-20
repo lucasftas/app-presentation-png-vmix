@@ -2,7 +2,7 @@
 
 Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
 
-**Status:** ✅ v0.4.0 — distribuição portable amigável, ícone dedicado, onboarding automático, banner de boot com URL de LAN
+**Status:** ✅ v0.5.0 — layout escalado 150%, menu hambúrguer no index com controle direto do vMix (prev/next/goto/reset), controle de proporção sincronizado entre tablets, "🟡 Wagner entrando em breve" via Preview do vMix, "FIM" ao acabar, paleta nova (atual=verde, progresso=azul, vermelho=alerta)
 
 ---
 
@@ -173,6 +173,8 @@ Pastas podem ser absolutas ou relativas ao `config.json`. Aceita UNC (`\\servido
 | `/admin/api/vmix_xml` | GET | Proxy do XML do vMix — fallback quando o browser não consegue fetchar o vMix direto (CORS/rede) |
 | `/admin/api/preview?pasta=...` | GET | Lista as imagens de uma pasta com URLs — alimenta o grid de miniaturas do modal |
 | `/admin/api/preview/img?pasta=&arq=` | GET | Serve uma imagem da pasta (com path traversal bloqueado) — pra miniatura + lightbox |
+| `/admin/api/ui_prefs` | GET/POST | Preferências de UI sincronizadas entre todos os clientes (atualmente: `split_ratio` 20-80) |
+| `/admin/api/vmix_control` | POST | Controla o vMix a partir do tablet do palestrante — `{action: "next\|prev\|goto\|reset", guid, index?}`. Valida GUID configurado + range do índice |
 
 ## Arquitetura de pastas
 
