@@ -209,10 +209,27 @@ def carregar_config() -> dict:
         return _config_default()
 
 
-def carregar_palestrantes(cfg: dict) -> dict:
+# Executor compartilhado: isola operacoes de filesystem (UNC lento, share caido)
+# Usado por list_dir() e carregar_palestrantes() com timeout.
+_LS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="fs_worker"
+)
+
+
+def _listar_imagens_em(pasta_path: Path) -> list[str]:
+    """Lista imagens de uma pasta (natural sort). Pode demorar em UNC lento."""
+    return sorted(
+        (x.name for x in pasta_path.iterdir() if x.is_file() and _is_image(x)),
+        key=_natural_key,
+    )
+
+
+def carregar_palestrantes(cfg: dict, timeout_por_pasta: float = 5.0) -> dict:
     """Retorna {guid: (nome, pasta_path, [imagens_ordenadas_natural])}.
 
-    Aceita PNG, JPG, JPEG, BMP, GIF, WEBP. Ordenacao natural (slide 2 < slide 10).
+    Aceita PNG, JPG, JPEG, BMP, GIF, WEBP. Ordenacao natural.
+    Cada pasta e lida com timeout (default 5s) pra nao travar o server
+    em UNC lento/caido.
     """
     out: dict = {}
     for p in cfg.get("palestrantes", []):
@@ -225,15 +242,37 @@ def carregar_palestrantes(cfg: dict) -> dict:
         pasta_path = Path(pasta_raw)
         if not pasta_path.is_absolute():
             pasta_path = (APP_DIR / pasta_raw).resolve()
-        if not pasta_path.is_dir():
-            print(f"[aviso] pasta nao encontrada para {nome}: {pasta_path}", file=sys.stderr)
+
+        # is_dir() tambem pode travar em UNC — protege tambem
+        try:
+            future = _LS_EXECUTOR.submit(pasta_path.is_dir)
+            eh_dir = future.result(timeout=timeout_por_pasta)
+        except concurrent.futures.TimeoutError:
+            print(f"[aviso] timeout ao acessar pasta de {nome}: {pasta_path}",
+                  file=sys.stderr)
             continue
-        imagens = sorted(
-            (x.name for x in pasta_path.iterdir() if x.is_file() and _is_image(x)),
-            key=_natural_key,
-        )
+        except Exception as e:
+            print(f"[aviso] erro acessando pasta de {nome}: {e}", file=sys.stderr)
+            continue
+        if not eh_dir:
+            print(f"[aviso] pasta nao encontrada para {nome}: {pasta_path}",
+                  file=sys.stderr)
+            continue
+
+        try:
+            future = _LS_EXECUTOR.submit(_listar_imagens_em, pasta_path)
+            imagens = future.result(timeout=timeout_por_pasta)
+        except concurrent.futures.TimeoutError:
+            print(f"[aviso] timeout listando imagens de {nome}: {pasta_path}",
+                  file=sys.stderr)
+            continue
+        except Exception as e:
+            print(f"[aviso] erro listando imagens de {nome}: {e}", file=sys.stderr)
+            continue
+
         if not imagens:
-            print(f"[aviso] pasta sem imagens para {nome}: {pasta_path}", file=sys.stderr)
+            print(f"[aviso] pasta sem imagens para {nome}: {pasta_path}",
+                  file=sys.stderr)
             continue
         out[guid] = (nome, pasta_path, imagens)
     return out
@@ -361,6 +400,8 @@ def salvar_ui_prefs(novo: dict) -> None:
             json.dump(atual, f, ensure_ascii=False, indent=2)
         tmp.replace(CONFIG_PATH)
         CFG = atual
+    if _config_watcher:
+        _config_watcher.marcar_escrita_nossa()
 
 
 def rescan_pasta(guid: str) -> list[str]:
@@ -389,6 +430,9 @@ def rescan_pasta(guid: str) -> list[str]:
     return imagens
 
 
+_config_watcher: "ConfigWatcher | None" = None
+
+
 def salvar_config(new_cfg: dict) -> None:
     """Valida, escreve config.json atomicamente e recarrega estado em memoria.
 
@@ -409,6 +453,8 @@ def salvar_config(new_cfg: dict) -> None:
         VMIX_HOST = CFG.get("vmix", {}).get("host", "localhost")
         VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
         PALESTRANTES = carregar_palestrantes(CFG)
+    if _config_watcher:
+        _config_watcher.marcar_escrita_nossa()
 
 
 # -------------------- Admin helpers --------------------
@@ -527,11 +573,6 @@ def preview_img_path(pasta_str: str, arq: str) -> Path:
     if not _is_image(candidate):
         raise PermissionError(f"Nao e imagem: {candidate.name}")
     return candidate
-
-
-_LS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-    max_workers=4, thread_name_prefix="list_dir"
-)
 
 
 def _list_dir_work(target: Path) -> list[dict]:
@@ -1192,6 +1233,143 @@ class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
 
+# -------------------- Resiliencia: port fallback + single instance --------------------
+
+def bind_com_fallback(porta_preferida: int, max_tentativas: int = 10) -> tuple[int, ThreadingServer]:
+    """Tenta fazer bind na porta preferida; se ocupada, tenta as seguintes.
+
+    Retorna (porta_usada, server). Levanta OSError se todas estiverem ocupadas.
+    """
+    ultimo_erro: Exception | None = None
+    for i in range(max_tentativas):
+        porta = porta_preferida + i
+        try:
+            srv = ThreadingServer(("", porta), Handler)
+            return porta, srv
+        except OSError as e:
+            ultimo_erro = e
+            continue
+    raise OSError(
+        f"Todas as portas de {porta_preferida} a "
+        f"{porta_preferida + max_tentativas - 1} estao ocupadas"
+    ) from ultimo_erro
+
+
+class SingleInstance:
+    """Wrapper simples pra CreateMutex do Windows.
+
+    Se o mutex ja existe, `adquirido` e False e o caller deve sair.
+    Fora do Windows, sempre retorna True (sem enforcement).
+    """
+
+    def __init__(self, nome: str):
+        self.nome = nome
+        self.handle = None
+        self.adquirido = False
+        if sys.platform != "win32":
+            self.adquirido = True
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            ERROR_ALREADY_EXISTS = 183
+            kernel32 = ctypes.windll.kernel32
+            kernel32.CreateMutexW.argtypes = [
+                ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR
+            ]
+            kernel32.CreateMutexW.restype = wintypes.HANDLE
+            self.handle = kernel32.CreateMutexW(None, False, nome)
+            last = kernel32.GetLastError()
+            if last == ERROR_ALREADY_EXISTS:
+                self.adquirido = False
+            else:
+                self.adquirido = True
+        except Exception:
+            # Em caso de falha do Windows API, nao bloqueia o app
+            self.adquirido = True
+
+    def release(self) -> None:
+        if self.handle and sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.kernel32.CloseHandle(self.handle)
+            except Exception:
+                pass
+            self.handle = None
+
+
+def aquirir_single_instance(nome: str = "ApresentadorVmixSingleton") -> SingleInstance:
+    """Helper que instancia SingleInstance. Exposta pra testes."""
+    return SingleInstance(nome)
+
+
+def http_self_check(porta: int, timeout: float = 1.0) -> bool:
+    """Tenta GET http://localhost:porta/state. Retorna True se HTTP 200."""
+    url = f"http://localhost:{porta}/state"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+class ConfigWatcher:
+    """Poll do mtime do config.json e recarrega se detectar edicao externa.
+
+    Chamadas de salvar_config() atualizam _last_known_mtime logo depois,
+    pra evitar loop infinito (nossa propria escrita nao deve ser tratada
+    como mudanca externa).
+    """
+
+    POLL_S = 1.0
+
+    def __init__(self):
+        self._stop = threading.Event()
+        self._last_known_mtime: float = 0.0
+        self.mudancas_detectadas = 0
+        try:
+            self._last_known_mtime = CONFIG_PATH.stat().st_mtime
+        except OSError:
+            pass
+
+    def marcar_escrita_nossa(self) -> None:
+        """Chamar logo apos salvar_config()/salvar_ui_prefs() pra nao
+        interpretar a propria escrita como edicao externa."""
+        try:
+            self._last_known_mtime = CONFIG_PATH.stat().st_mtime
+        except OSError:
+            pass
+
+    def start(self) -> None:
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:
+        global CFG, VMIX_HOST, VMIX_PORT, PALESTRANTES
+        while not self._stop.wait(self.POLL_S):
+            try:
+                mtime = CONFIG_PATH.stat().st_mtime
+            except OSError:
+                continue
+            if mtime != self._last_known_mtime and self._last_known_mtime > 0:
+                logger.info("config.json modificado externamente — recarregando")
+                try:
+                    with _cfg_lock:
+                        novo = carregar_config()
+                        CFG = novo
+                        VMIX_HOST = CFG.get("vmix", {}).get("host", "localhost")
+                        VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
+                        PALESTRANTES = carregar_palestrantes(CFG)
+                    self.mudancas_detectadas += 1
+                except Exception as e:
+                    logger.error("erro recarregando config: %s", e)
+                self._last_known_mtime = mtime
+            elif self._last_known_mtime == 0:
+                self._last_known_mtime = mtime
+
+
 def _ip_lan() -> str | None:
     """Descobre IP da maquina na rede local (pro URL que o palestrante acessa).
 
@@ -1223,8 +1401,61 @@ def _shutdown_server() -> None:
         _server_ref = None
 
 
+_single_instance: "SingleInstance | None" = None
+
+
 def main() -> None:
     setup_logging(verbose=True)
+
+    # Single-instance: evita 2 copias do app rodando simultaneamente.
+    global _single_instance
+    _single_instance = aquirir_single_instance()
+    if not _single_instance.adquirido:
+        print("=" * 68)
+        print("  Apresentador vMix ja esta rodando.")
+        print("  Procure o icone na bandeja do Windows (perto do relogio).")
+        print("  Se nao aparecer, mate o processo no Gerenciador de Tarefas.")
+        print("=" * 68)
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "O Apresentador vMix já está rodando.\n\n"
+                "Procure o ícone na bandeja do Windows (perto do relógio).",
+                "Apresentador vMix",
+                0x40,  # MB_ICONINFORMATION
+            )
+        except Exception:
+            pass
+        return
+
+    global _server_ref, SERVER_PORT
+
+    # Tenta bindar porta com fallback antes de imprimir banner,
+    # pra que o banner mostre a porta real.
+    try:
+        porta_real, srv = bind_com_fallback(SERVER_PORT, max_tentativas=10)
+    except OSError as e:
+        logger.error("Nao consegui bindar porta: %s", e)
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Não foi possível iniciar — todas as portas de {SERVER_PORT} a "
+                f"{SERVER_PORT + 9} estão ocupadas.\n\n"
+                "Feche outras instâncias ou altere 'server_port' no config.json.",
+                "Apresentador vMix",
+                0x10,
+            )
+        except Exception:
+            pass
+        return
+
+    if porta_real != SERVER_PORT:
+        logger.warning("Porta %s ocupada — usando %s", SERVER_PORT, porta_real)
+        SERVER_PORT = porta_real
+    _server_ref = srv
+
     ip_lan = _ip_lan()
     print("=" * 68)
     print("  Modo Apresentador - app-presentation-png-vmix")
@@ -1256,10 +1487,6 @@ def main() -> None:
 
     threading.Thread(target=_abrir_browser, daemon=True).start()
 
-    global _server_ref
-    srv = ThreadingServer(("", SERVER_PORT), Handler)
-    _server_ref = srv
-
     def _run_srv() -> None:
         try:
             srv.serve_forever()
@@ -1268,6 +1495,11 @@ def main() -> None:
 
     server_thread = threading.Thread(target=_run_srv, daemon=True)
     server_thread.start()
+
+    # File watcher do config.json — recarrega se alguem editar externamente
+    global _config_watcher
+    _config_watcher = ConfigWatcher()
+    _config_watcher.start()
 
     # Tray: tenta subir o icone na bandeja. Se falhar (sem display, lib ausente
     # em dev), cai em modo "bloqueia na main thread" como antes.

@@ -250,6 +250,27 @@
     transition: background 0.15s;
   }
   .hamburger-btn:hover { background: #fff; }
+
+  /* Botão de tela cheia (kiosk mode) — ao lado do hambúrguer */
+  .fullscreen-btn {
+    position: fixed;
+    top: 14px;
+    right: 66px;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid #d9d9d9;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0;
+    z-index: 30;
+    transition: background 0.15s;
+    color: #333;
+  }
+  .fullscreen-btn:hover { background: #fff; }
   .hamburger-btn span {
     display: block;
     width: 22px;
@@ -468,6 +489,9 @@
 </head>
 <body>
 
+<button class="fullscreen-btn" id="fullscreen-btn" type="button"
+        aria-label="Tela cheia (F11)" title="Tela cheia (F11)">⛶</button>
+
 <button class="hamburger-btn" id="hamburger-btn" type="button" aria-label="Abrir menu de controle" title="Abrir menu de controle">
   <span></span><span></span><span></span>
 </button>
@@ -631,6 +655,39 @@ function atualizarPreviewBanner(s) {
    Usa o guid do palestrante ativo (vem no /state) pra saber qual input
    mover. Botões desabilitados quando não há ativo.
    ======================================================================== */
+/* ========================================================================
+   Modo kiosk — F11 ou clique no botão ⛶ alterna tela cheia.
+   O browser naturalmente já trata F11, mas interceptamos pra garantir que
+   funcione dentro de iframes/browsers em modo app.
+   ======================================================================== */
+const fullscreenBtn = $('fullscreen-btn');
+
+function toggleFullscreen() {
+  const el = document.documentElement;
+  if (!document.fullscreenElement) {
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  } else {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }
+}
+
+fullscreenBtn.addEventListener('click', toggleFullscreen);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F11') {
+    e.preventDefault();
+    toggleFullscreen();
+  }
+});
+
+document.addEventListener('fullscreenchange', () => {
+  fullscreenBtn.textContent = document.fullscreenElement ? '⛶' : '⛶';
+  fullscreenBtn.title = document.fullscreenElement
+    ? 'Sair da tela cheia (F11 ou ESC)'
+    : 'Tela cheia (F11)';
+});
+
 const hamburgerBtn = $('hamburger-btn');
 const menuPanel = $('menu-panel');
 const btnPrev = $('btn-prev');

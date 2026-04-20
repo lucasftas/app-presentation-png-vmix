@@ -3,6 +3,31 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-04-19
+
+### Added
+- **Port fallback**: se 5000 ocupado, tenta 5001…5009 automaticamente e notifica a porta real
+- **Single-instance guard** via `CreateMutexW` do Windows (ctypes, stdlib puro) — segunda instância mostra MessageBox e sai sem conflito
+- **Health check interno**: thread daemon no tray pinga `/state` a cada 1.5s; 3 falhas seguidas → notificação "🔴 Servidor interno parou" (detecta thread zumbi sem visibilidade externa)
+- **ConfigWatcher**: poll do `mtime` do config.json; edição externa (fora do admin) dispara reload automático de `CFG`, `VMIX_HOST`, `VMIX_PORT`, `PALESTRANTES` sem precisar de restart
+- **Timeout em `carregar_palestrantes`** (default 5s por pasta) — UNC lento/caído não trava mais `salvar_config` nem o admin
+- **Ícone de alerta** (`assets/icon_alert.ico`) com badge vermelho "!" no canto — tray troca pro ícone de alerta quando vMix offline >10s, volta ao normal quando reconecta
+- **Notificação de palestrante com nome** — "⚪ Wagner saiu do ar" em vez do genérico (guardando nome anterior)
+- **Feedback do firewall**: `ShellExecuteW` retorna código checado → notify "✓ Porta liberada" / "Permissão negada (UAC cancelado)" / "Erro"
+- **Fallback do dialog tkinter**: se `simpledialog.askstring` falhar (runtime Tcl ausente no exe), notifica "use o Dashboard pra editar IP"
+- **Modo kiosk no index**: botão **⛶** no canto superior direito + tecla **F11** alternam tela cheia (via Fullscreen API), pro palestrante não ver a barra de endereço
+- 6 testes novos em `tests/test_resilience.py` cobrindo bind com fallback, single-instance, health check, config watcher
+
+### Changed
+- `_LS_EXECUTOR` (ThreadPoolExecutor) compartilhado entre `list_dir` e `carregar_palestrantes` — isolamento de operações de filesystem
+- `main()`: 1º verifica single-instance, 2º faz bind com fallback, 3º inicia server thread + file watcher, 4º monitor inicia dentro do tray
+- `scripts/gerar_icone.py` gera `icon.ico` + `icon_alert.ico` numa só execução
+
+### Fixed
+- **Thread do HTTP server morrendo em silêncio**: antes o tray continuava ativo mesmo com server zumbi; agora detectamos em ≤5s e avisamos
+- **Duas instâncias do .exe causando conflito de porta**: agora a segunda detecta mutex e sai com mensagem amigável
+- **Edição manual de config.json ignorada até restart**: agora recarrega em ≤1s
+
 ## [0.6.0] — 2026-04-19
 
 ### Added

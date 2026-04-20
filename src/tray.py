@@ -26,20 +26,24 @@ from PIL import Image
 
 # -------------------- Paths --------------------
 
-def _icon_path() -> Path:
-    """Procura icon.ico em recursos/ (portable) ou assets/ (dev)."""
+def _icon_path(alerta: bool = False) -> Path:
+    """Procura icon.ico (ou icon_alert.ico) em recursos/ (portable) ou assets/ (dev)."""
+    nome = "icon_alert.ico" if alerta else "icon.ico"
     app_dir = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-    for cand in (app_dir / "recursos" / "icon.ico",
-                 app_dir / "icon.ico",
-                 app_dir.parent / "assets" / "icon.ico"):
+    for cand in (app_dir / "recursos" / nome,
+                 app_dir / nome,
+                 app_dir.parent / "assets" / nome):
         if cand.is_file():
             return cand
-    raise FileNotFoundError("icon.ico nao encontrado")
+    # fallback: se icon_alert nao existe, usa o normal
+    if alerta:
+        return _icon_path(False)
+    raise FileNotFoundError(f"{nome} nao encontrado")
 
 
-def carregar_icone() -> Image.Image:
+def carregar_icone(alerta: bool = False) -> Image.Image:
     """Carrega icon.ico em objeto PIL.Image pro pystray."""
-    return Image.open(_icon_path())
+    return Image.open(_icon_path(alerta))
 
 
 # -------------------- Helpers de formatacao --------------------
@@ -82,22 +86,29 @@ def copiar_para_clipboard(texto: str) -> None:
 # -------------------- Dialog pra editar IP --------------------
 
 def perguntar_vmix_host(atual: str) -> str | None:
-    """Abre dialog tkinter pra o user informar novo host:port do vMix."""
-    root = tk.Tk()
-    root.withdraw()
+    """Abre dialog tkinter pra o user informar novo host:port do vMix.
+
+    Se tkinter falhar (runtime Tcl ausente, etc), retorna None e o caller
+    deve mostrar fallback (ex: notificar pra usar o Dashboard web).
+    """
     try:
-        root.iconbitmap(str(_icon_path()))
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.iconbitmap(str(_icon_path()))
+        except Exception:
+            pass
+        try:
+            novo = simpledialog.askstring(
+                "vMix — alterar endereço",
+                f"Informe o novo host:port do vMix:\n(atual: {atual})",
+                initialvalue=atual,
+                parent=root,
+            )
+        finally:
+            root.destroy()
     except Exception:
-        pass
-    try:
-        novo = simpledialog.askstring(
-            "vMix — alterar endereço",
-            f"Informe o novo host:port do vMix:\n(atual: {atual})",
-            initialvalue=atual,
-            parent=root,
-        )
-    finally:
-        root.destroy()
+        return None
     if novo:
         return novo.strip()
     return None
@@ -174,6 +185,17 @@ def _editar_vmix_host(server_module):
     def _cb(icon=None, item=None):
         atual = vmix_host_port(server_module)
         novo = perguntar_vmix_host(atual)
+        if novo is None:
+            # Dialog tkinter falhou OU user cancelou — sugere o Dashboard
+            try:
+                icon.notify(
+                    "Não foi possível abrir o diálogo. "
+                    "Use o Dashboard (admin) pra editar o IP do vMix.",
+                    "Apresentador vMix",
+                )
+            except Exception:
+                pass
+            return
         if not novo:
             return
         parsed = parse_host_port(novo, default_port=8088)
@@ -202,7 +224,11 @@ def _editar_vmix_host(server_module):
 
 def _liberar_firewall(server_module):
     def _cb(icon=None, item=None):
-        liberar_firewall(server_module.SERVER_PORT)
+        ok, msg = liberar_firewall(server_module.SERVER_PORT)
+        try:
+            icon.notify(msg, "Apresentador vMix")
+        except Exception:
+            pass
     return _cb
 
 
@@ -313,8 +339,13 @@ def montar_menu_items(server_module, icon=None, shutdown_fn=None):
     return items
 
 
-def liberar_firewall(porta: int) -> None:
-    """Cria regra no Windows Firewall liberando a porta (requer UAC)."""
+def liberar_firewall(porta: int) -> tuple[bool, str]:
+    """Cria regra no Windows Firewall liberando a porta (requer UAC).
+
+    Retorna (ok, mensagem). ok=False pode significar:
+    - user cancelou UAC (ShellExecuteW retorna <= 32)
+    - erro chamando a API
+    """
     cmd = (
         f'netsh advfirewall firewall add rule '
         f'name="Apresentador vMix" dir=in action=allow '
@@ -322,12 +353,19 @@ def liberar_firewall(porta: int) -> None:
     )
     try:
         import ctypes
-        # ShellExecute com verb "runas" → prompt UAC
-        ctypes.windll.shell32.ShellExecuteW(
+        ret = ctypes.windll.shell32.ShellExecuteW(
             None, "runas", "cmd.exe", f"/c {cmd}", None, 0
         )
+        # ShellExecuteW retorna > 32 em sucesso. <= 32 são códigos de erro.
+        # SE_ERR_ACCESSDENIED = 5 → user cancelou UAC
+        if ret > 32:
+            return True, f"Porta {porta} liberada no firewall"
+        elif ret == 5:
+            return False, "Permissão negada (UAC cancelado)"
+        else:
+            return False, f"Erro ShellExecute (código {ret})"
     except Exception as e:
-        print(f"[erro] liberar firewall: {e}", file=sys.stderr)
+        return False, f"Erro: {e}"
 
 
 # -------------------- Notificacoes (toast Windows) --------------------
@@ -338,15 +376,20 @@ class MonitorNotificacoes:
     Eventos:
     - vMix offline há > 10s (1 notificação, reseta quando volta)
     - Palestrante diferente entrou no ar (por mudança de guid)
-    - Palestrante voltou pra offline → notifica "X saiu do ar"
+    - Palestrante voltou pra offline → notifica "Wagner saiu do ar"
+    - Servidor HTTP interno nao responde 3 ticks seguidos (self-check)
     """
 
     def __init__(self, icon: pystray.Icon, server_module):
         self.icon = icon
         self.server = server_module
         self._ultimo_guid_ao_vivo: str | None = None
+        self._ultimo_nome_ao_vivo: str | None = None
         self._vmix_offline_desde: float | None = None
         self._ja_notificou_offline = False
+        self._self_check_falhas = 0
+        self._ja_notificou_servidor_morto = False
+        self._em_estado_alerta = False
         self._stop = threading.Event()
 
     def start(self) -> None:
@@ -362,14 +405,40 @@ class MonitorNotificacoes:
         except Exception:
             pass
 
+    def _setar_estado_alerta(self, alerta: bool) -> None:
+        """Troca o icone conforme saude (normal/alerta)."""
+        if alerta == self._em_estado_alerta:
+            return
+        try:
+            self.icon.icon = carregar_icone(alerta=alerta)
+            self._em_estado_alerta = alerta
+        except Exception:
+            pass
+
     def _loop(self) -> None:
         while not self._stop.wait(1.5):
+            # 1. Self-check do HTTP server interno (detecta thread zumbi)
+            ok_self = self.server.http_self_check(self.server.SERVER_PORT, timeout=0.8)
+            if not ok_self:
+                self._self_check_falhas += 1
+                if self._self_check_falhas >= 3 and not self._ja_notificou_servidor_morto:
+                    self._notify(
+                        "🔴 Servidor interno parou de responder.\n"
+                        "Clique no tray → Configs → Reiniciar servidor."
+                    )
+                    self._ja_notificou_servidor_morto = True
+            else:
+                if self._ja_notificou_servidor_morto:
+                    self._notify("🟢 Servidor interno voltou")
+                self._self_check_falhas = 0
+                self._ja_notificou_servidor_morto = False
+
             try:
                 s = self.server.compute_state()
             except Exception:
                 continue
 
-            # vMix offline >10s
+            # 2. vMix offline >10s
             if not s.get("ok"):
                 if self._vmix_offline_desde is None:
                     self._vmix_offline_desde = time.time()
@@ -377,25 +446,27 @@ class MonitorNotificacoes:
                       and not self._ja_notificou_offline):
                     self._notify("🔴 vMix offline há 10+ segundos")
                     self._ja_notificou_offline = True
+                    self._setar_estado_alerta(True)
                 continue
 
             # vMix voltou — reset flags
             if self._ja_notificou_offline:
                 self._notify("🟢 vMix voltou online")
+                self._setar_estado_alerta(False)
             self._vmix_offline_desde = None
             self._ja_notificou_offline = False
 
-            # Mudança de palestrante ao vivo
+            # 3. Mudanca de palestrante ao vivo
             guid_atual = s.get("guid") if s.get("ativo") else None
+            nome_atual = s.get("palestrante") if s.get("ativo") else None
             if guid_atual != self._ultimo_guid_ao_vivo:
                 if guid_atual:
-                    nome = s.get("palestrante", "?")
-                    self._notify(f"🟢 {nome} entrou no ar")
-                elif self._ultimo_guid_ao_vivo:
-                    # palestrante saiu
-                    # (nome anterior não disponível aqui, usa genérico)
-                    self._notify("⚪ Palestrante saiu do ar")
+                    self._notify(f"🟢 {nome_atual} entrou no ar")
+                elif self._ultimo_guid_ao_vivo and self._ultimo_nome_ao_vivo:
+                    self._notify(f"⚪ {self._ultimo_nome_ao_vivo} saiu do ar")
                 self._ultimo_guid_ao_vivo = guid_atual
+                if nome_atual:
+                    self._ultimo_nome_ao_vivo = nome_atual
 
 
 # -------------------- Entry point --------------------
