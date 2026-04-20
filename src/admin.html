@@ -432,6 +432,58 @@
   }
   @keyframes pulse { 50% { opacity: 0.4; } }
 
+  /* Controle de proporção do modo apresentador */
+  .split-control-admin {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #1a1d23;
+    border: 1px solid #2a2e37;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 12px;
+  }
+  .split-control-admin .title {
+    color: #9aa0a6;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .split-control-admin input[type=range] {
+    flex: 1;
+    max-width: 280px;
+    accent-color: #e63946;
+  }
+  .split-control-admin .val {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    color: #c8cdd4;
+    min-width: 80px;
+    text-align: center;
+    background: #12141a;
+    padding: 4px 10px;
+    border-radius: 4px;
+  }
+  .split-control-admin .preview {
+    display: flex;
+    gap: 3px;
+    width: 120px;
+    height: 28px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: #12141a;
+  }
+  .split-control-admin .preview .slot-atual {
+    background: #e63946;
+    transition: flex 0.2s;
+  }
+  .split-control-admin .preview .slot-proximo {
+    background: #f2b705;
+    transition: flex 0.2s;
+  }
+
   /* Banner global de status (vMix offline) */
   .global-banner {
     position: sticky;
@@ -875,6 +927,20 @@
 <section class="section">
   <h2>Palestrantes monitorados</h2>
   <div class="section-hint">Inputs que serão reconhecidos como slideshow do palestrante. A página pública reflete estes em tempo real.</div>
+
+  <div class="split-control-admin" title="Muda a proporção entre slide atual e próximo no modo apresentador. Salvo localmente no navegador.">
+    <span class="title">Proporção ATUAL / PRÓXIMO</span>
+    <div class="preview">
+      <div class="slot-atual" id="split-preview-atual"></div>
+      <div class="slot-proximo" id="split-preview-proximo"></div>
+    </div>
+    <input type="range" id="admin-split-slider" min="20" max="80" step="1" value="38"
+           aria-label="Proporção do slide atual no modo apresentador"
+           title="20 = slide atual pequenino, 80 = slide atual dominante. Padrão: 38.">
+    <span class="val" id="admin-split-val">38 / 62</span>
+    <button class="btn btn-sm" type="button" id="admin-split-reset">reset</button>
+  </div>
+
   <div id="cards-configurados" class="cards"></div>
 </section>
 
@@ -1927,6 +1993,45 @@ function atualizarHeartbeat() {
 }
 // Heartbeat tick independente — mostra o tempo passando mesmo sem re-render
 setInterval(atualizarHeartbeat, 250);
+
+/* ========================================================================
+   Controle de proporção — mesmo localStorage key que o index.html usa.
+   Mudanças aqui propagam pro index aberto via storage event (cross-tab).
+   ======================================================================== */
+const SPLIT_KEY = 'presenter.split_ratio';
+const SPLIT_DEFAULT = 38;
+const splitSliderAdmin = document.getElementById('admin-split-slider');
+const splitValAdmin = document.getElementById('admin-split-val');
+const splitPrevAtual = document.getElementById('split-preview-atual');
+const splitPrevProximo = document.getElementById('split-preview-proximo');
+const splitResetAdmin = document.getElementById('admin-split-reset');
+
+function aplicarSplitAdmin(ratio) {
+  const r = Math.min(80, Math.max(20, Math.round(ratio)));
+  splitSliderAdmin.value = r;
+  splitValAdmin.textContent = `${r} / ${100 - r}`;
+  splitPrevAtual.style.flex = r;
+  splitPrevProximo.style.flex = (100 - r);
+}
+
+function lerSplitAdmin() {
+  const v = parseInt(localStorage.getItem(SPLIT_KEY) || SPLIT_DEFAULT, 10);
+  return isNaN(v) ? SPLIT_DEFAULT : v;
+}
+
+splitSliderAdmin.addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10);
+  aplicarSplitAdmin(v);
+  localStorage.setItem(SPLIT_KEY, String(v));
+});
+splitResetAdmin.addEventListener('click', () => {
+  localStorage.removeItem(SPLIT_KEY);
+  aplicarSplitAdmin(SPLIT_DEFAULT);
+});
+window.addEventListener('storage', (e) => {
+  if (e.key === SPLIT_KEY) aplicarSplitAdmin(parseInt(e.newValue || SPLIT_DEFAULT, 10));
+});
+aplicarSplitAdmin(lerSplitAdmin());
 
 /* ========================================================================
    BOOT — carrega config do server, popula instância/palestrantes, inicia polling
