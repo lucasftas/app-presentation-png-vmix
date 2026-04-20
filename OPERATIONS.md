@@ -30,6 +30,20 @@
 - [x] User testou o menu hambúrguer: 10+ POSTs `/vmix_control` registrados, todos 200
 - [x] Release v0.5.0 (filé)
 
+## 2026-04-20 — Projetar Prévia v0.8.0
+
+- [x] User pediu recurso tipo "Projetar Prévia" do OBS: abrir modo apresentador em monitor específico, tela cheia limpa, sem precisar tocar no monitor do palestrante
+- [x] Análise do código OBS em `D:\Downloads\obs-studio-32.1.1` via Explore agent: OBS usa Qt (`QGuiApplication::screens()` + `showFullScreen()` + `Qt::BlankCursor`), tracking em vector, `DeleteProjector(this)` remoto
+- [x] Decisão arquitetural: usar subprocess Chrome/Edge em modo kiosk (`--app=URL --start-fullscreen --window-position --window-size`) pra reaproveitar HTML existente em vez de reimplementar renderização
+- [x] Backend: `list_monitors()` via ctypes `EnumDisplayMonitors`/`GetMonitorInfoW` (stdlib, sem dep nova), `ProjetorManager` com tracking por PID, endpoints `/admin/api/monitors|projetores|projetor_abrir|projetor_fechar`
+- [x] Index: modo kiosk via `?kiosk=1` — cursor invisível, botões/slider escondidos
+- [x] Admin: seção "Projetar em monitor" com cards visuais (verde quando aberto, clique alterna abrir/fechar)
+- [x] Tray: submenu "📺 Projetar em monitor" com 1 item por monitor + "Fechar todos"
+- [x] Shutdown: Sair no tray agora fecha projetores antes de parar server
+- [x] Validação end-to-end: monitor detectado (`\\.\DISPLAY257` 2560×1440), Chrome encontrado (`C:\Program Files\Google\Chrome\Application\chrome.exe`)
+- [x] 7 testes novos (ProjetorManager.abrir/fechar/gc), total 108 verdes
+- [x] Release v0.8.0 (filé)
+
 ## 2026-04-20 — polish visual v0.7.1
 
 - [x] User testou v0.7.0: port fallback ok, config watcher ok, banner offline ok, F11 ok

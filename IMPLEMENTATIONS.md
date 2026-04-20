@@ -1,5 +1,68 @@
 # Implementations
 
+## v0.8.0 — 2026-04-20
+
+**Resumo:** "Projetar Prévia" inspirado no OBS — abre o modo apresentador em tela cheia limpa num monitor específico, controlado remotamente pelo admin/tray. Pesquisa do código OBS revelou que ele usa Qt `QGuiApplication::screens()[i].geometry()` + `showFullScreen()` + `Qt::BlankCursor`, com tracking em `std::vector<OBSProjector*>` pra permitir fecho remoto. Nossa abordagem equivalente usa stdlib ctypes + subprocess Chrome/Edge em modo kiosk.
+
+**Backend (`src/server.py`):**
+- `list_monitors()` — `EnumDisplayMonitors` + `GetMonitorInfoW` via ctypes stdlib; retorna lista de `{indice, nome (\\.\DISPLAYN), x, y, width, height, primario}`. Fallback `DISPLAY1 (virtual)` em não-Windows pra CI Linux
+- `_achar_browser_kiosk()` — varre `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%LocalAppData%` por `chrome.exe` ou `msedge.exe`
+- `ProjetorManager` — thread-safe com `_lock`, mantém dict `pid → {proc, monitor, url, aberto_em}`:
+  - `abrir(monitor, url)`: `subprocess.Popen([browser, --app=URL, --start-fullscreen, --window-position=X,Y, --window-size=WxH, --user-data-dir=<temp>/apresentador_kiosk_<idx>])` com `CREATE_NO_WINDOW`. `--user-data-dir` isolado impede colisão com sessão normal do browser
+  - `fechar(pid)`: `proc.terminate()` com fallback `.kill()` se não responder em 3s
+  - `fechar_todos()` + `gc()` (remove processos mortos do tracking)
+- Endpoints: `GET /admin/api/monitors`, `GET /admin/api/projetores`, `POST /admin/api/projetor_abrir`, `POST /admin/api/projetor_fechar`
+- `_shutdown_server()` agora chama `PROJETOR_MANAGER.fechar_todos()` antes de parar o HTTP server
+
+**Frontend (`src/index.html`):** Modo kiosk via `?kiosk=1`: `body.kiosk { cursor: none }` + esconde botões ⛶/☰ e slider discreto
+
+**Frontend (`src/admin.html`):** Nova seção `.projetor-section` com `.monitores-grid` (grid responsivo), cards clicáveis com nome + resolução + posição + badge "primário"; card verde quando aberto com prefixo `●`; "✕ fechar todos (N)" quando N ≥ 2
+
+**Tray (`src/tray.py`):** Submenu "📺 Projetar em monitor" com 1 item por monitor, prefixo `●` nos abertos, ação alterna abrir/fechar
+
+**Testes** (`tests/test_projetor.py`, 7 casos): verificação de `list_monitors`, `abrir/fechar/fechar_todos/gc`, + flags passados pro subprocess. **Total 108 testes, todos verdes.**
+
+**Validação:** `/admin/api/monitors` detectou `\\.\DISPLAY257` 2560×1440; `_achar_browser_kiosk()` retornou `C:\Program Files\Google\Chrome\Application\chrome.exe`
+
+## v0.7.1 — 2026-04-20
+
+**Resumo:** polish visual: placeholders grandes nos slides vazios, banner "entrando em breve" escalado pra 15vh com contagem de slides, clique no tray abre Dashboard em vez de Modo Apresentador, app roda discreto sem auto-abrir browser.
+
+- `/state` ganha campo `preview_total` (total de slides do palestrante em Preview)
+- `.preview-banner`: `min-height: 15vh` + texto em unidades vh (6vh nome, 3vh meta)
+- `.slide-frame`: fundo cinza `#e8e8e8` (em vez de transparente), placeholder com texto grande ("Sem palestrante ao vivo" / "Aguardando palestrante" / "Sem próximo slide" / "FIM")
+- `.status-overlay` movido de `top:right` pra `bottom:left` (não colide com botões ⛶/☰) e só aparece em erros reais
+- Tray: `default=True` movido de "Abrir Modo Apresentador" pra "Abrir Dashboard"
+- `main()`: removido `threading.Thread(target=_abrir_browser).start()` — app roda discreto, user abre pelo tray
+
+## v0.7.0 — 2026-04-19
+
+**Resumo:** release de resiliência — port fallback, single-instance, health check interno, file watcher de config, timeout em UNC, ícone de alerta, modo kiosk (F11) no index.
+
+- `bind_com_fallback(port, max)` — tenta 5000→5009 antes de desistir; MessageBox se falhar
+- `SingleInstance` via `ctypes.windll.kernel32.CreateMutexW` — segunda instância detecta e sai
+- `http_self_check(porta, timeout)` — pinga `/state` pra thread daemon de notificação detectar server zumbi
+- `ConfigWatcher` — poll de mtime, reload de `CFG`/`PALESTRANTES` em mudança externa
+- Timeout em `carregar_palestrantes` via `_LS_EXECUTOR` compartilhado
+- `assets/icon_alert.ico` gerado — swap no tray quando vMix offline >10s
+- Fallback do `simpledialog.askstring` (tkinter pode falhar no .exe)
+- Feedback do firewall: `ShellExecuteW` checa retorno (>32 = ok, 5 = UAC cancelado)
+- `.fullscreen-btn` + listener F11 no index
+- 6 testes novos em `tests/test_resilience.py`
+
+## v0.6.0 — 2026-04-19
+
+**Resumo:** tray icon nativo do Windows via pystray + menu dinâmico + notificações em eventos críticos.
+
+- `src/tray.py` novo módulo com `carregar_icone`, `montar_menu_items`, `MonitorNotificacoes`, `rodar_tray`
+- Menu dinâmico reconstruído a cada abertura com: status vMix (clique edita IP), URL LAN (clique copia), por palestrante (label + 3 ações), abrir telas, submenu Configs
+- `perguntar_vmix_host()` via `simpledialog.askstring`
+- `copiar_para_clipboard()` via tkinter
+- `liberar_firewall(porta)` via netsh + ShellExecuteW com UAC
+- `MonitorNotificacoes` em thread daemon (1.5s poll) — dispara `icon.notify` em transições
+- `main()` refactor: server em thread daemon, tray bloqueia main thread
+- `build.bat` com `--noconsole`
+
 ## v0.5.0 — 2026-04-19
 
 **Resumo:** release de polimento UX — layout do modo apresentador escala 150%, controle deslizante de proporção sincronizado entre todos os tablets via server, banner "entrando em breve" usando Preview do vMix, "FIM" explícito quando acaba o slideshow, paleta reorganizada (atual=verde, progresso=azul, vermelho só pra alerta). Coberto por 69 testes stdlib (9 novos).
