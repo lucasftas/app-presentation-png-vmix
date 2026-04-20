@@ -30,6 +30,18 @@
 - [x] User testou o menu hambúrguer: 10+ POSTs `/vmix_control` registrados, todos 200
 - [x] Release v0.5.0 (filé)
 
+## 2026-04-20 — sanitização pré open-source v0.8.1
+
+- [x] User perguntou se repo poderia ficar público — auditoria revelou: nenhuma credencial/token/email pessoal, mas dados cosméticos a limpar
+- [x] Removido mock data morto em `src/admin.html` (arrays com GUIDs reais do preset de dev)
+- [x] GUIDs de teste trocados por placeholder `aaaaaaaa-0000-...`
+- [x] Nome comercial "Jornada Full Face" → genérico em config.example.json, mocks/tray.html, IMPLEMENTATIONS.md
+- [x] `config.example.json` limpo com paths genéricos
+- [x] `LICENSE` MIT adicionado
+- [x] `README.md` redesign "estrela magnet" — badges, features por persona, quick start, arquitetura, API table, CTA de estrela
+- [x] 108 testes passando após cleanup
+- [x] Release v0.8.1 (filé)
+
 ## 2026-04-20 — Projetar Prévia v0.8.0
 
 - [x] User pediu recurso tipo "Projetar Prévia" do OBS: abrir modo apresentador em monitor específico, tela cheia limpa, sem precisar tocar no monitor do palestrante

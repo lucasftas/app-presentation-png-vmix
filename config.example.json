@@ -5,8 +5,8 @@
   },
   "server_port": 5000,
   "roots": [
-    "\\\\vmix\\4TB\\Live Jornada Full Face\\Slides",
-    "D:\\Slides"
+    "D:/Slides",
+    "\\\\servidor\\share\\slides"
   ],
   "palestrantes": []
 }

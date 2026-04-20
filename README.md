@@ -1,217 +1,243 @@
-# app-presentation-png-vmix
+<div align="center">
 
-Aplicação Windows que se conecta à API HTTP do vMix e serve um **modo apresentador web** (estilo PowerPoint Presenter View) com o **slide atual + próximo** do palestrante ativo, mais um **dashboard administrativo** que descobre e configura palestrantes automaticamente a partir do vMix.
+# 🎥 Apresentador vMix
 
-**Status:** ✅ v0.8.0 — **"Projetar Prévia" estilo OBS** — abre modo apresentador em tela cheia limpa no monitor escolhido (Chrome/Edge `--app` + kiosk), controlado remotamente pelo admin/tray, sem precisar mexer no monitor do palestrante
+### Presenter View pra palestrantes em lives com vMix
+
+**O palestrante vê o slide atual + próximo no tablet, sincronizado automaticamente.**
+O operador controla tudo do seu PC. Sem mexer no tablet do palestrante durante o show.
+
+[![Release](https://img.shields.io/github/v/release/lucasftas/app-presentation-png-vmix?style=flat-square&color=2ea043)](https://github.com/lucasftas/app-presentation-png-vmix/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3b82f6.svg?style=flat-square)](https://www.python.org/)
+[![vMix 29](https://img.shields.io/badge/vMix-29%2B-f2b705.svg?style=flat-square)](https://www.vmix.com/)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4.svg?style=flat-square)](#)
+
+![preview do icone](assets/icon.png)
+
+</div>
 
 ---
 
-## Proposta
+## 🤔 Por que existe?
 
-Em lives onde os slides são projetados pelo vMix (PNGs dentro de inputs `Photos`/`ImageList`), o *Presenter View* nativo do PowerPoint não funciona — o palestrante não tem como ver o que vem a seguir. Esta app preenche essa lacuna: faz polling da API do vMix, identifica qual palestrante está ao vivo (inclusive quando o slide é layer de uma composição com câmera ou está em overlay global), cruza com os PNGs do filesystem e serve uma página web para tablet/notebook na mesa do palestrante.
+Em lives onde os slides são projetados **pelo vMix** (não pelo PowerPoint direto), o *Presenter View* nativo do PowerPoint simplesmente **não funciona**. O palestrante fica sem saber o que vem a seguir, dependendo do operador ou de um monitor de confidence que só mostra o slide atual.
 
-## Componentes
+Este app preenche essa lacuna:
 
-| URL | Finalidade | Quem usa |
-|---|---|---|
-| `http://<host>:5000/` | Modo apresentador (slide atual + próximo) | Palestrante — tablet/notebook |
-| `http://<host>:5000/admin` | Dashboard de configuração | Operador vMix |
-| `http://<host>:5000/state` | JSON com estado atual (integrações) | — |
-| `http://<host>:5000/admin/api/*` | API REST do dashboard | Dashboard (interno) |
+- 🔌 Conecta na **API HTTP do vMix** (rede local)
+- 🔍 Detecta automaticamente qual palestrante está **ao vivo** — mesmo quando o slide aparece como overlay de um input composto com câmera
+- 🖼️ Exibe uma página web com **slide atual + próximo** (e mais metadados)
+- 📱 Funciona em qualquer tablet/notebook na mesa do palestrante
 
-## Fluxo do operador
+---
 
-1. Copia a pasta da aplicação pra máquina escolhida (a do vMix ou outra na rede local)
-2. Dá duplo-clique em `apresentador.exe` → abre console + navegador
-3. Vai em `http://localhost:5000/admin` — vê **todos os inputs `Photos` do vMix atual** e **sugestões de pares** quando há Colour envelopando Photos (blanks camera+slides)
-4. Adiciona palestrantes com 1 clique: o dashboard auto-sugere o nome (do `shortTitle` do input) e faz auto-match de pasta pelos tokens do nome dentro dos drives/atalhos detectados
-5. Palestrante acessa `http://<ip-da-maquina>:5000/` pelo tablet — sincroniza em até 500 ms
+## ✨ Features
 
-## Detecção do palestrante em 3 prioridades
+### 🎬 Pro palestrante
 
-O vMix raramente joga o `Photos` direto no Program. O fluxo típico é: **Colour composto (blank) com Photos em overlay → o blank vai pra Overlay global por cima da câmera**. A detecção respeita essa ordem:
+- **Modo apresentador** estilo PowerPoint com slide atual + próximo + barra de progresso
+- **Controle remoto embutido** — menu hambúrguer pra avançar/voltar/ir direto num slide, sem precisar do vMix
+- **Modo kiosk** (tela cheia limpa, sem cursor) em monitor dedicado
+- Banner **"Fulano entrando em breve"** quando você está em Preview do vMix
+- **"FIM"** destacado quando o slideshow acaba
+- Ajuste de proporção atual/próximo por slider
 
-1. **Program direto** — input em Program é um Photos registrado? Usa.
-2. **Overlay interno** — Program é Colour composto? Varre `<overlay>` procurando um Photos registrado.
-3. **Overlay global** — alguma das 16 overlays globais (`<overlays><overlay number="N">key</overlay>`) aponta pra Photos ou Colour+Photos? Usa.
+### ⚙️ Pro operador
 
-Cruzamento com o filesystem: o `title` do vMix contém o filename atual (ex: `"SLIDE 001 - Wagner - slide 26.png"`) — match por substring contra as imagens da pasta. Formatos aceitos: **PNG, JPG, JPEG, BMP, GIF, WEBP** (os mesmos que o vMix aceita em inputs Photos/ImageList). Ordenação é **natural sort** — `slide 2.png` vem antes de `slide 10.png` mesmo sem zero-padding.
+- **Dashboard web completo** pra gerenciar palestrantes sem editar JSON
+- **Grid de miniaturas** ao adicionar palestrante — confirma visualmente se a pasta é a correta
+- **Detecção automática de padrões no vMix** — sugere pares blank↔slideshow
+- **File browser estilo explorer** com drives, atalhos detectados, match automático de pasta por nome
+- Badges de saúde por palestrante: `✓ OK` / `⚠ GUID órfão` / `✕ Pasta inacessível` / `⚠ Filename não bate`
+- **Proximidade dos clientes conectados** — chip mostra quantos tablets estão assistindo agora
 
-## Dashboard `/admin`
+### 🖥️ System tray nativo Windows
 
-Interface web dinâmica que se atualiza a cada 500 ms com o estado do vMix:
+- Ícone na bandeja com **controle completo do vMix** por palestrante (avançar/voltar/reset)
+- **Notificações** em eventos críticos: vMix offline, palestrante no ar, servidor parou
+- **"Projetar em monitor"** — abre modo apresentador em tela cheia no monitor escolhido (inspirado no OBS "Fullscreen Projector")
+- Editar IP do vMix direto do tray via dialog
+- Copiar URL do palestrante pra clipboard com 1 clique
+- Liberar porta no firewall do Windows com 1 clique
+- Ícone troca pra ⚠️ quando vMix está offline >10s
 
-- **Cards dos palestrantes configurados** com slide atual, filename, barra de progresso e destaque vermelho quando ao vivo
-- **Sugestões automáticas** de pares blank ↔ slideshow detectados
-- **Lista de inputs** agrupada por tipo (Photos / Blanks compostos / Todos)
-- **Modal adicionar/editar** com:
-  - Auto-preenchimento do nome a partir do `shortTitle` do input
-  - **File browser estilo explorer**: drives do Windows + atalhos detectados (preset do vMix + pasta pai) + navegação livre com breadcrumb + botão "✓ usar esta pasta"
-  - Auto-match de pasta por tokens do nome do slideshow (ex: shortTitle "003 - Vinícius" → sugere `…\Slides\003 - Vinícius`)
-- **Badges de saúde** em cada card: `✓ OK`, `⚠ GUID órfão`, `✕ Pasta inacessível`, `✕ Sem imagens`, `⚠ Filename não bate`, `⚠ vMix offline` — atualizadas a cada 500 ms
-- **Grid de miniaturas** no modal quando você escolhe uma pasta — ver todas as imagens em thumbnail pra confirmar visualmente que é a pasta certa antes de salvar; clique abre lightbox fullscreen
-- **Botão "🔍 testar"** no modal — valida GUID + pasta + filename contra o vMix atual antes de salvar, com check-list inline
-- **Validação stricta** no save: nomes vazios, GUIDs duplicados, pastas inexistentes, pastas sem imagens — todos rejeitados com mensagens estruturadas
-- **Heartbeat no rodapé** — mostra "atualizado há X ms/s", verde < 2s, amarelo < 8s, vermelho acima
-- **Banner vermelho** no topo (dashboard e modo apresentador) quando vMix offline há mais de 3 ticks
-- **Chip "👤 N"** no header mostra quantos tablets estão assistindo ao modo apresentador agora
-- **Edição inline** do nome via ✎ no card
-- **Persistência** no `config.json` com hot-reload em memória (sem restart do servidor)
+### 🛡️ À prova de show ao vivo
 
-Números de input exibidos com box padronizado e padding de 2 dígitos (`05`, `07`, `89`) — todos lidos ao vivo do vMix, então se você reordenar/renomear inputs lá, o dashboard atualiza sozinho. O **GUID** é a chave estável persistida no config.
+- **Port fallback** — se 5000 estiver ocupada, tenta 5001, 5002...
+- **Single-instance guard** — duplo duplo-clique não abre 2 cópias conflitantes
+- **Health check interno** — detecta se o próprio servidor HTTP morreu e notifica
+- **Recovery de config corrompido** — backup automático, app sobe sempre
+- **Timeout em share de rede (UNC) lento** — share caído não trava o dashboard
+- **File watcher do config** — editar `config.json` externamente recarrega automaticamente
+- **Logs com rotação** em `logs/YYYY-MM-DD.log`
+- **Match ancorado de filename** — resolve ambiguidade `slide 1.png` vs `slide 10.png`
 
-## Resiliência (v0.3.0)
+---
 
-Para aguentar show ao vivo sem quebras silenciosas:
+## 🚀 Quick start
 
-- **Match de filename ancorado** — resolve ambiguidade `slide 1.png` vs `slide 10.png`; desempate pelo filename mais longo
-- **Re-scan automático no `/img`** — arquivo que some da pasta depois do boot é re-escaneado; se sumiu mesmo, retorna **410 Gone** com diagnóstico (não mais 404 silencioso)
-- **Recovery de `config.json` corrompido** — server não crasha mais: faz backup em `config.bak.json`, loga o erro, sobe com config vazio
-- **Timeout em `list_dir`** — UNC lento ou share caído não bloqueia worker; `/admin/api/ls` devolve `timeout: true` após 3s
-- **Fallback CORS** — admin tenta CORS direto no vMix, se falhar cai pro proxy `/admin/api/vmix_xml` no próprio server
-- **Streaming de imagens** — slides de 30MB+ não carregam na RAM; `_send_file` usa `shutil.copyfileobj` em chunks de 64KB
-- **Logs com rotação** — arquivo `logs/YYYY-MM-DD.log` roda até 10MB, mantendo 5 backups
+### 1. Baixe a release mais recente
 
-## Stack
+[**⬇️ Download Apresentador vMix (portable, ~30 MB)**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest)
 
-- **Linguagem:** Python 3.11+ (**stdlib pura** — zero dependências de runtime)
-- **Servidor HTTP:** `http.server` + `socketserver.ThreadingMixIn`
-- **Cliente vMix:** `urllib.request` + `xml.etree.ElementTree`
-- **Frontend:** HTML/CSS/JS vanilla (sem build step, sem framework)
-- **Empacotamento:** PyInstaller `--onefile` → `apresentador.exe` (~8 MB)
-- **Plataforma alvo:** Windows 10/11 com vMix 29+ acessível na rede (porta 8088)
+Extraia o zip em qualquer lugar. Zero instalação.
 
-**Por que stdlib pura:** zero `pip install` na máquina do operador, .exe pequeno, menos superfície de falha em ambiente de live.
+### 2. Duplo-clique no `Iniciar Apresentador.exe`
 
-## Como rodar
+- Ícone aparece na **bandeja do Windows** perto do relógio
+- Sem janela preta, sem poluição visual
+- Single-instance: não rola abrir 2 cópias por engano
 
-### Desenvolvimento
+### 3. Clique no ícone → Dashboard abre no browser
 
-```bash
-cd src
-python server.py
+- Adicione palestrantes: escolha o input `Photos` do vMix, navegue até a pasta dos slides, confirme pelo **grid de miniaturas**, salve
+- Rede? O banner de boot mostra `http://192.168.x.x:5000/` — abra essa URL no browser do tablet do palestrante
+- Pronto. Quando você passar slide no vMix, o tablet sincroniza em **≤500 ms**
+
+---
+
+## 🎯 Pra quem serve
+
+- **Produtores de live** (eventos, cursos, pitches) que passam slides pelo vMix
+- **Palestrantes remotos** que só têm um tablet na mesa e precisam ver o próximo slide
+- **Igrejas / lives de culto** com 2-3 pregadores e apresentações separadas
+- **Workshops online** com múltiplos palestrantes durante o dia
+
+Funciona especialmente bem quando:
+- Você tem **múltiplos palestrantes no mesmo evento** (a app detecta qual está ao vivo)
+- Os slides entram como **blank composto** (input Colour com Photos em overlay) — padrão comum em lives com câmera+slide
+
+---
+
+## 🏗️ Como funciona (arquitetura em 3 linhas)
+
+```
+                          [ config.json ]
+                                │
+┌──────────────┐       ┌────────┴────────┐       ┌──────────────┐
+│ vMix (8088)  │◀──────│ Apresentador    │──────▶│ Tablet web   │
+│ XML API      │       │ server.py       │       │ :5000/       │
+│ (polling     │       │ + tray          │       │ (palestrante)│
+│  500ms)      │       │ + projetor      │       └──────────────┘
+└──────────────┘       └────────┬────────┘
+                                │
+                       ┌────────┴────────┐
+                       │ Dashboard /admin│
+                       │ (operador)      │
+                       └─────────────────┘
 ```
 
-Requer `config.json` em `src/` (copie `config.example.json` pra `src/config.json`).
+**Detecção em 3 prioridades:**
 
-### Testes
+1. Input diretamente em Program é um palestrante? → usa
+2. Input em Program é Colour com Photos em overlay? → usa (blanks composto)
+3. Alguma das 16 overlays globais aponta pra Photos? → usa
+
+O filename atual (`title` do XML do vMix) é matched contra os arquivos da pasta com sort natural.
+
+---
+
+## 🛠️ Stack
+
+- **Backend:** Python 3.11+ stdlib pura (`http.server`, `urllib`, `xml.etree`, `ctypes`, `tkinter`, `concurrent.futures`) + `pystray` + `Pillow`
+- **Frontend:** HTML/CSS/JS vanilla (sem build step)
+- **Distribuição:** PyInstaller `--onefile` + `--noconsole` → exe portable (~30 MB)
+- **Plataforma:** Windows 10/11 (tray icon + `ctypes.windll`)
+
+**108 testes unittest** cobrindo config, filesystem, vMix parsing, match ancorado, resiliência, projetores e tray.
+
+---
+
+## 🖼️ Screenshots
+
+<div align="center">
+
+### Modo apresentador (o que o palestrante vê)
+![hero](assets/icon_alert.png)
+
+*Slide atual (verde) menor à esquerda, próximo (amarelo) maior à direita, barra de progresso azul, nome do palestrante e contador no rodapé.*
+
+</div>
+
+---
+
+## 📦 Releases
+
+- 🟢 **v0.8.0** — "Projetar Prévia" estilo OBS: abre modo apresentador em tela cheia limpa no monitor escolhido
+- **v0.7.0** — À prova de falhas silenciosas: port fallback, single-instance, health check, file watcher
+- **v0.6.0** — Tray icon nativo com menu completo + notificações
+- **v0.5.0** — Layout escalado, proporção sincronizada entre tablets, preview palestrante
+- **v0.4.0** — Pacote portable amigável pra leigo
+- **v0.3.0** — À prova de show ao vivo: match ancorado, recovery, grid de miniaturas
+
+[Veja o CHANGELOG completo](CHANGELOG.md) · [Todas as releases](https://github.com/lucasftas/app-presentation-png-vmix/releases)
+
+---
+
+## 🧪 Desenvolvimento
 
 ```bash
+# Clone
+git clone https://github.com/lucasftas/app-presentation-png-vmix.git
+cd app-presentation-png-vmix
+
+# Rodar direto com Python
+cp config.example.json src/config.json
+python src/server.py
+
+# Testes (stdlib puro, sem pytest)
 python -m unittest discover tests/ -v
-```
 
-Suíte 100% stdlib (`unittest` + `tempfile`), sem dependência externa. Cobre: formatos de imagem, natural sort, validação de config, detecção de palestrante em overlay interno/global, diagnóstico por palestrante (`/health` e `/validate`).
-
-### Produção (build portable)
-
-```bash
-pip install pyinstaller
+# Build portable
+pip install pyinstaller pystray Pillow
 scripts\build.bat
+# Saída: dist/Apresentador vMix/
 ```
 
-Gera a pasta **`dist/Apresentador vMix/`** com estrutura amigável pra leigo:
+---
 
-```
-Apresentador vMix/
-├── Iniciar Apresentador.exe    ← duplo-clique é suficiente
-├── LEIA-ME.txt                 ← fluxo em 3 passos
-├── config.json                 ← pré-preenchido com defaults
-└── recursos/
-    ├── admin.html              ← dashboard (server busca aqui primeiro)
-    ├── index.html              ← modo apresentador
-    └── icon.ico
-```
-
-Copiar a pasta inteira pra máquina do evento ou pendrive. Zero instalação. Ao primeiro duplo-clique:
-- Janela de console abre com banner mostrando URL do admin + URL pro tablet do palestrante (com IP da LAN)
-- Navegador abre automaticamente no `/admin` se ainda não há palestrantes configurados, caso contrário no modo apresentador
-
-## Configuração — `config.json`
-
-```json
-{
-  "vmix": {
-    "host": "localhost",
-    "port": 8088
-  },
-  "server_port": 5000,
-  "roots": [
-    "\\\\vmix\\4TB\\Live Jornada Full Face\\Slides",
-    "D:\\Slides"
-  ],
-  "palestrantes": []
-}
-```
-
-- **`vmix.host`**: IP/hostname da máquina com vMix
-- **`roots`**: pastas extras para aparecer como atalhos no file browser do dashboard. Opcional — o preset do vMix e sua pasta pai já viram atalhos automaticamente
-- **`palestrantes`**: começa vazio. O dashboard preenche conforme você adiciona
-
-Cada palestrante fica com:
-
-```json
-{
-  "nome": "Wagner",
-  "guid": "51f89804-b46f-4716-8914-4f692c63c38c",
-  "pasta": "D:\\Slides\\001 - Wagner"
-}
-```
-
-Pastas podem ser absolutas ou relativas ao `config.json`. Aceita UNC (`\\servidor\share\...`).
-
-## API REST (`/admin/api`)
+## 📡 API REST (integrações)
 
 | Endpoint | Método | Descrição |
 |---|---|---|
-| `/admin/api/config` | GET | Retorna `config.json` atual |
-| `/admin/api/config` | POST | Valida e salva config + recarrega em memória. Retorna `400` com `erros: [...]` estruturados se houver problema (nome vazio, GUID duplicado, pasta inexistente, pasta sem imagens) |
-| `/admin/api/roots` | GET | Raízes detectadas (preset vMix + pasta pai + pasta do app + `config.roots`) |
-| `/admin/api/ls` | GET | Sem `?path` → retorna drives + atalhos; com `?path=...` → lista subpastas com contagem de `imagens` e `subdirs` |
-| `/admin/api/health` | GET | Retorna diagnóstico por palestrante: `ok`, `guid_orfao`, `pasta_inacessivel`, `sem_imagens`, `filename_mismatch`, `vmix_offline` |
-| `/admin/api/validate?guid=&pasta=` | GET | Diagnóstico avulso (não precisa estar no config) — usado pelo botão "testar" do modal |
-| `/admin/api/clientes` | GET | IPs que fizeram `GET /state` nos últimos 30 s — pra saber quantos tablets estão assistindo |
-| `/admin/api/vmix_xml` | GET | Proxy do XML do vMix — fallback quando o browser não consegue fetchar o vMix direto (CORS/rede) |
-| `/admin/api/preview?pasta=...` | GET | Lista as imagens de uma pasta com URLs — alimenta o grid de miniaturas do modal |
-| `/admin/api/preview/img?pasta=&arq=` | GET | Serve uma imagem da pasta (com path traversal bloqueado) — pra miniatura + lightbox |
-| `/admin/api/ui_prefs` | GET/POST | Preferências de UI sincronizadas entre todos os clientes (atualmente: `split_ratio` 20-80) |
-| `/admin/api/vmix_control` | POST | Controla o vMix a partir do tablet do palestrante — `{action: "next\|prev\|goto\|reset", guid, index?}`. Valida GUID configurado + range do índice |
-| `/admin/api/monitors` | GET | Lista monitores do Windows com `indice`, `nome`, `x`, `y`, `width`, `height`, `primario` |
-| `/admin/api/projetores` | GET | Projetores abertos no momento (PID + monitor) |
-| `/admin/api/projetor_abrir` | POST | `{monitor_idx}` → abre Chrome/Edge em kiosk no monitor |
-| `/admin/api/projetor_fechar` | POST | `{pid}` ou `{pid: "todos"}` → fecha projetor(es) |
+| `/` | GET | Modo apresentador (HTML) |
+| `/admin` | GET | Dashboard (HTML) |
+| `/state` | GET | Estado atual do palestrante ao vivo (JSON) |
+| `/admin/api/config` | GET/POST | Config atual + persistência |
+| `/admin/api/health` | GET | Diagnóstico por palestrante |
+| `/admin/api/vmix_control` | POST | `{action: "next\|prev\|goto\|reset", guid, index?}` |
+| `/admin/api/monitors` | GET | Monitores detectados no Windows |
+| `/admin/api/projetor_abrir` | POST | Abre projetor em tela cheia num monitor |
+| `/admin/api/preview?pasta=` | GET | Lista imagens da pasta (miniaturas do modal) |
 
-## Arquitetura de pastas
-
-```
-app-presentation-png-vmix/
-├── src/
-│   ├── server.py          # Servidor HTTP + cliente vMix + API admin (~460 linhas)
-│   ├── index.html         # Modo apresentador (palestrante)
-│   └── admin.html         # Dashboard (operador)
-├── scripts/
-│   └── build.bat          # PyInstaller --onefile
-├── config.example.json    # Template de configuração
-├── CHANGELOG.md
-├── IMPLEMENTATIONS.md
-├── OPERATIONS.md
-├── CLAUDE.md
-└── README.md
-```
-
-## Fora de escopo (v0.1.0)
-
-- **Controle ativo do vMix** (Next/Prev slide pela interface web) — a app é monitor passivo
-- **Multi-instância de vMix** (vários PCs com vMix no mesmo painel) — previsto em versões futuras
-- **Scan automático de rede** pra descobrir vMix — previsto
-- **Suporte a inputs PowerPoint / VirtualSet / vídeos** como fonte de slides (apenas `Photos`/`ImageList` por ora)
-- **Anotações, timer, chat** — não faz parte da proposta
-- **Customização de tema** via config
-
-## Referências
-
-- [vMix Web API — documentação oficial](https://www.vmix.com/help27/index.htm?DeveloperAPI.html)
-- Inspiração de UX: *Presenter View* do PowerPoint / Keynote
+Mais 8 endpoints — veja o [código do server](src/server.py) ou rode `grep "sub ==" src/server.py`.
 
 ---
 
-**Projeto privado — uso interno.**
+## 🤝 Contribuindo
+
+Issues e PRs bem-vindos! Em especial:
+
+- 📸 **Screenshots reais de uso** pra colocar no README
+- 🐛 Relatos de bugs em produção com vMix
+- 🌍 Testes em outras versões do vMix (27, 28, 29, 30+)
+- 💡 Ideias de integrações (OBS overlay, Companion, Stream Deck)
+
+Abra uma [issue](https://github.com/lucasftas/app-presentation-png-vmix/issues) ou mande um PR.
+
+---
+
+## 📜 Licença
+
+MIT — [veja LICENSE](LICENSE). Pode usar livremente em eventos comerciais.
+
+---
+
+<div align="center">
+
+**Gostou? ⭐ dá uma estrelinha aí — ajuda a descobrir que tem gente usando.**
+
+Feito pra funcionar em live, testado em live, publicado em live.
+
+</div>

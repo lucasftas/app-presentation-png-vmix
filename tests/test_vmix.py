@@ -12,9 +12,9 @@ from tests.conftest_helpers import fake_vmix_xml, make_images  # noqa: E402
 import server  # noqa: E402
 
 
-WAGNER_GUID = "51f89804-b46f-4716-8914-4f692c63c38c"
-VINI_GUID = "1cb3e57a-b400-4751-8c16-a5d5a88dfe03"
-BLANK_WAGNER_GUID = "8ce11bad-a75a-42fa-9299-2d220b822a82"
+WAGNER_GUID = "aaaaaaaa-0000-0000-0000-000000000001"
+VINI_GUID = "aaaaaaaa-0000-0000-0000-000000000002"
+BLANK_WAGNER_GUID = "aaaaaaaa-0000-0000-0000-000000000003"
 
 
 def _inputs_basicos():

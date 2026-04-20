@@ -267,7 +267,7 @@
 - `scripts\build.bat` copia `admin.html` junto do `apresentador.exe` e `index.html`
 - `config.example.json` atualizado com campo `roots` e `palestrantes` vazio
 
-**Padrões identificados no vMix real do usuário (Jornada Full Face II):**
+**Padrões identificados no vMix real durante o desenvolvimento:**
 - 6 inputs `Photos` (slideshows por palestrante)
 - 6 inputs `Colour` que envelopam Photos em `overlay[1]` (blanks camera+slides)
 - Nomenclatura `LETRA + espaços + descrição` nos blanks
