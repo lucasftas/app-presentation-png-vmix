@@ -21,6 +21,9 @@ config.json
 Thumbs.db
 *.lnk
 
+# Claude Code settings (local only)
+.claude/
+
 # Logs
 logs/
 *.log
