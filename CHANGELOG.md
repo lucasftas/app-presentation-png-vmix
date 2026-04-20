@@ -3,6 +3,23 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-04-20
+
+### Added
+- Campo `preview_total` no `/state` — número de slides do palestrante em preview
+- Banner "entrando em breve" **escalado pra 15vh** com texto grande em vh units (6vh no nome, 3vh no meta) e contagem de slides: `🟡 49 slides · Wagner entrando em breve`
+- Placeholders dos slides com texto maior e mais claro: **"Sem palestrante ao vivo"** / **"Aguardando palestrante"** / **"Sem próximo slide"** / **"FIM"**
+
+### Changed
+- Clique simples/duplo no ícone do tray agora abre o **Dashboard (admin)** (antes era Modo Apresentador) — mais útil pro operador
+- Removido auto-abrir do browser no boot — app roda discreto no tray, operador abre manualmente pelo menu
+- Status overlay movido de `top:right` pra `bottom:left` (não colide mais com botões ⛶/☰ do index)
+- Status só aparece em **erros reais** (`ok: false`) — sem spam de "Nenhum palestrante" quando ativo=false
+- `.slide-frame` com fundo cinza claro `#e8e8e8` (combina com a página) em vez de transparente
+
+### Fixed
+- Canvas dos slides apareciam vazios com só "bolinhas" (dots dos badges) quando sem palestrante ativo — agora mostra placeholder com texto explícito centralizado
+
 ## [0.7.0] — 2026-04-19
 
 ### Added

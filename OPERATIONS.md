@@ -30,6 +30,17 @@
 - [x] User testou o menu hambúrguer: 10+ POSTs `/vmix_control` registrados, todos 200
 - [x] Release v0.5.0 (filé)
 
+## 2026-04-20 — polish visual v0.7.1
+
+- [x] User testou v0.7.0: port fallback ok, config watcher ok, banner offline ok, F11 ok
+- [x] Bug visual: canvas dos slides aparecia vazio com só dots pequenos quando sem palestrante — fix com fundo cinza `#e8e8e8`, placeholders com texto maior ("Sem palestrante ao vivo" / "Aguardando palestrante" / "Sem próximo slide" / "FIM")
+- [x] Status overlay movido pro canto inferior esquerdo (estava sobrepondo botões ⛶/☰); só aparece em erros reais
+- [x] Banner "entrando em breve" escalado pra 15vh com unidades vh no texto (6vh/3vh) e inclusão da contagem de slides via novo campo `preview_total` no `/state`
+- [x] Clique simples/duplo no tray agora abre o Dashboard (antes Modo Apresentador) — mais util pro operador
+- [x] Removido auto-abrir do browser no boot — app roda discreto no tray
+- [x] Discussão sobre YAML vs JSON: ficou JSON por ora (admin é via primário; alternativa `D:/path` em vez de `D:\\path` resolve escapes)
+- [x] Release v0.7.1 (filé)
+
 ## 2026-04-19 — distribuição portable v0.4.0 (ícone + estrutura amigável)
 
 - [x] Conversa sobre distribuição: portable zip como primário (padrão da indústria em broadcast — Companion, OBS, Stream Deck), Inno Setup opcional futuramente
