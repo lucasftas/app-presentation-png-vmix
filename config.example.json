@@ -8,5 +8,19 @@
     "D:/Slides",
     "\\\\servidor\\share\\slides"
   ],
-  "palestrantes": []
+  "palestrantes": [
+    {
+      "_comentario": "tipo 'photos' (padrao): input Photos do vMix, slides vem de uma pasta no disco",
+      "nome": "Exemplo Slides",
+      "guid": "00000000-0000-0000-0000-000000000000",
+      "tipo": "photos",
+      "pasta": "D:/Slides/Palestrante"
+    },
+    {
+      "_comentario": "tipo 'list': input List (VideoList) do vMix; a playlist (slides + videos) vem do proprio vMix, nao precisa de pasta",
+      "nome": "Exemplo List de Videos",
+      "guid": "11111111-1111-1111-1111-111111111111",
+      "tipo": "list"
+    }
+  ]
 }

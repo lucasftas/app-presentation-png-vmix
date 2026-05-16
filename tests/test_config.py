@@ -76,17 +76,20 @@ class ValidarConfigTests(unittest.TestCase):
         ]))
         self.assertTrue(any("duplicado" in e.lower() for e in erros))
 
-    def test_rejeita_pasta_inexistente(self):
+    def test_pasta_inexistente_nao_bloqueia(self):
+        # Pasta morta NAO bloqueia o save — senao seria impossivel salvar (ou
+        # ate remover) qualquer coisa quando o config ja tem uma entrada com
+        # pasta inacessivel. Estado da pasta aparece no health badge.
         erros = server.validar_config(_cfg_base([
             {"nome": "X", "guid": "abc", "pasta": str(self.root / "nao_existe")},
         ]))
-        self.assertTrue(any("nao existe" in e.lower() or "não existe" in e.lower() for e in erros))
+        self.assertEqual(erros, [])
 
-    def test_rejeita_pasta_sem_imagens(self):
+    def test_pasta_sem_imagens_nao_bloqueia(self):
         erros = server.validar_config(_cfg_base([
             {"nome": "X", "guid": "abc", "pasta": str(self.pasta_sem_imgs)},
         ]))
-        self.assertTrue(any("imagens" in e.lower() or "imagem" in e.lower() for e in erros))
+        self.assertEqual(erros, [])
 
 
 class SalvarConfigTests(unittest.TestCase):
@@ -126,10 +129,20 @@ class SalvarConfigTests(unittest.TestCase):
         antes = self.config_path.read_text(encoding="utf-8")
         with self.assertRaises(ValueError):
             server.salvar_config(_cfg_base([
-                {"nome": "X", "guid": "g", "pasta": str(self.root / "fake")},
+                {"nome": "X", "guid": "", "pasta": str(self.pasta_ok)},
             ]))
         depois = self.config_path.read_text(encoding="utf-8")
         self.assertEqual(antes, depois)
+
+    def test_salva_mesmo_com_pasta_morta(self):
+        # Regressao: config com pasta inexistente deve salvar (nao bloquear),
+        # senao o operador nao consegue nem adicionar nem remover palestrante.
+        novo = _cfg_base([
+            {"nome": "Velho", "guid": "g-morto", "pasta": str(self.root / "sumiu")},
+        ])
+        server.salvar_config(novo)
+        lido = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(lido["palestrantes"]), 1)
 
     def test_value_error_carrega_lista_de_erros(self):
         try:

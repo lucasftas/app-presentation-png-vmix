@@ -25,7 +25,7 @@ class RescanImgTests(unittest.TestCase):
         make_images(self.pasta, ["slide 01.png", "slide 02.png", "slide 03.png"])
         self._orig_pal = server.PALESTRANTES
         server.PALESTRANTES = {
-            WAGNER_GUID: ("Wagner", self.pasta, ["slide 01.png", "slide 02.png", "slide 03.png"]),
+            WAGNER_GUID: ("Wagner", self.pasta, ["slide 01.png", "slide 02.png", "slide 03.png"], "photos"),
         }
 
     def tearDown(self):

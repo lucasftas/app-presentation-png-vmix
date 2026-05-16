@@ -27,7 +27,7 @@ class CarregarPalestrantesTests(unittest.TestCase):
             make_images(pasta, ["slide 01.jpg", "slide 02.jpg", "slide 03.jpg"])
             out = self._carregar_com_pasta(pasta)
             self.assertEqual(len(out), 1)
-            (_nome, _path, imagens) = next(iter(out.values()))
+            (_nome, _path, imagens, _tipo) = next(iter(out.values()))
             self.assertEqual(imagens, ["slide 01.jpg", "slide 02.jpg", "slide 03.jpg"])
 
     def test_carrega_com_extensoes_mistas(self):
@@ -37,7 +37,7 @@ class CarregarPalestrantesTests(unittest.TestCase):
                 "a.png", "b.jpg", "c.jpeg", "d.bmp", "e.gif", "f.webp",
             ])
             out = self._carregar_com_pasta(pasta)
-            (_nome, _path, imagens) = next(iter(out.values()))
+            (_nome, _path, imagens, _tipo) = next(iter(out.values()))
             self.assertEqual(len(imagens), 6)
 
     def test_ignora_nao_imagens(self):
@@ -45,7 +45,7 @@ class CarregarPalestrantesTests(unittest.TestCase):
             pasta = Path(td) / "slides"
             make_images(pasta, ["ok.png", "ignora.txt", "config.ini", "video.mp4"])
             out = self._carregar_com_pasta(pasta)
-            (_nome, _path, imagens) = next(iter(out.values()))
+            (_nome, _path, imagens, _tipo) = next(iter(out.values()))
             self.assertEqual(imagens, ["ok.png"])
 
     def test_pasta_sem_imagens_nao_carrega(self):
@@ -84,7 +84,7 @@ class NaturalSortTests(unittest.TestCase):
             make_images(pasta, ["slide 10.png", "slide 2.png", "slide 1.png"])
             cfg = {"palestrantes": [{"nome": "X", "guid": "g", "pasta": str(pasta)}]}
             out = server.carregar_palestrantes(cfg)
-            (_nome, _path, imagens) = next(iter(out.values()))
+            (_nome, _path, imagens, _tipo) = next(iter(out.values()))
             self.assertEqual(imagens, ["slide 1.png", "slide 2.png", "slide 10.png"])
 
 

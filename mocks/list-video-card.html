@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock — Frame de vídeo + tag (input List)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    color: #ddd;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 32px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 28px; }
+  .cena-label {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: #6aa9ff; font-weight: 700; margin: 28px 0 10px;
+  }
+
+  /* ---- recorte fiel do modo apresentador (index.html) ---- */
+  .tela { background: #f2f2f2; border-radius: 10px; overflow: hidden;
+          box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+  main { display: flex; gap: 24px; padding: 24px; height: 420px; }
+  .panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .panel-atual   { flex: 38 1 0; }
+  .panel-proximo { flex: 62 1 0; }
+  .panel-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .badge { font-size: 21px; font-weight: 700; letter-spacing: 3px;
+           padding: 7px 20px; border-radius: 4px; color: #fff; }
+  .panel-atual .badge { background: #2ea043; }
+  .panel-proximo .badge { background: #f2b705; color: #1a1a1a; }
+  .slide-num { font-size: 24px; font-weight: 700; color: #333; }
+  .slide-num .total { color: #888; font-weight: 500; }
+  .slide-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  .slide-frame {
+    aspect-ratio: 16 / 9; width: 100%; max-width: 100%; max-height: 100%;
+    background: #e8e8e8; border: 4px solid #222; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,0.18); position: relative;
+  }
+  .panel-atual .slide-frame { border-color: #2ea043; }
+  .panel-proximo .slide-frame { border-color: #f2b705; }
+
+  /* slide de imagem fake */
+  .slide-fake {
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, #dfe7f0 0%, #c3d2e6 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #5a6b80; font-size: 22px; font-weight: 600;
+  }
+  /* frame de vídeo fake (simula o thumbnail gerado pelo ffmpeg) */
+  .frame-fake {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 40%, #3a4a63 0%, #1a2230 70%),
+      #1a2230;
+    display: flex; align-items: center; justify-content: center;
+    color: #8595ad; font-size: 16px;
+  }
+
+  /* ====== tag "VÍDEO" + tempo — canto do frame ====== */
+  .video-tag {
+    position: absolute; top: 14px; left: 14px; z-index: 3;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  }
+  .video-tag .vt-label {
+    background: #e0182d; color: #fff;
+    font-size: 22px; font-weight: 800; letter-spacing: 2px;
+    padding: 6px 14px; border-radius: 8px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+  }
+  .video-tag .vt-time {
+    background: rgba(0,0,0,0.8); color: #fff;
+    font-size: 15px; font-weight: 700;
+    padding: 4px 10px; border-radius: 6px;
+  }
+
+  /* ====== fallback — sem frame gerado: botão vermelho "VÍDEO" + tempo ====== */
+  .video-card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 22px; background: #e8e8e8;
+  }
+  .video-card .vc-tag {
+    background: #e0182d; color: #fff;
+    font-size: 52px; font-weight: 800; letter-spacing: 8px;
+    padding: 16px 32px; border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .video-card .vc-tempo {
+    font-size: 38px; font-weight: 700; color: #333;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .footer { background: #fff; border-top: 1px solid #d9d9d9; padding: 14px 28px 18px; }
+  .footer-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .palestrante { font-size: 26px; font-weight: 600; color: #1a1a1a; }
+  .contador { font-size: 20px; color: #555; }
+  .contador strong { color: #1a1a1a; }
+  .progress { height: 10px; background: #e4e4e4; border-radius: 5px; margin-top: 10px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #0ea5e9); border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<h1>Frame de vídeo + tag "VÍDEO" — input List do vMix</h1>
+<div class="sub">Item de vídeo mostra o <strong>frame pré-gerado</strong> (botão "Gerar frames" no /admin)
+com o retângulo vermelho "VÍDEO" no canto. Sem frame gerado → card 🎬 de fallback.</div>
+
+<!-- ============ CENA 1: ATUAL slide · PRÓXIMO vídeo (frame + tag) ============ -->
+<div class="cena-label">Cena 1 — slide no ar, próximo é vídeo (frame gerado)</div>
+<div class="tela">
+  <main>
+    <div class="panel panel-atual">
+      <div class="panel-header"><span class="badge">ATUAL</span>
+        <span class="slide-num">12<span class="total"> / 17</span></span></div>
+      <div class="slide-wrap"><div class="slide-frame">
+        <div class="slide-fake">slide 12.png</div>
+      </div></div>
+    </div>
+    <div class="panel panel-proximo">
+      <div class="panel-header"><span class="badge">PRÓXIMO</span>
+        <span class="slide-num">13<span class="total"> / 17</span></span></div>
+      <div class="slide-wrap"><div class="slide-frame">
+        <div class="frame-fake">[ frame do vídeo 13.mov ]</div>
+        <div class="video-tag">
+          <span class="vt-label">VÍDEO</span>
+          <span class="vt-time">02m14s</span>
+        </div>
+      </div></div>
+    </div>
+  </main>
+  <div class="footer">
+    <div class="footer-top"><div class="palestrante">Pitch — Vídeos</div>
+      <div class="contador">Slide <strong>12</strong> de <strong>17</strong></div></div>
+    <div class="progress"><div class="progress-fill" style="width:68%"></div></div>
+  </div>
+</div>
+
+<!-- ============ CENA 2: ATUAL vídeo (frame + tag) · PRÓXIMO slide ============ -->
+<div class="cena-label">Cena 2 — vídeo no ar (frame + tag), próximo é slide</div>
+<div class="tela">
+  <main>
+    <div class="panel panel-atual">
+      <div class="panel-header"><span class="badge">ATUAL</span>
+        <span class="slide-num">13<span class="total"> / 17</span></span></div>
+      <div class="slide-wrap"><div class="slide-frame">
+        <div class="frame-fake">[ frame do vídeo 13.mov ]</div>
+        <div class="video-tag">
+          <span class="vt-label">VÍDEO</span>
+          <span class="vt-time">02m14s</span>
+        </div>
+      </div></div>
+    </div>
+    <div class="panel panel-proximo">
+      <div class="panel-header"><span class="badge">PRÓXIMO</span>
+        <span class="slide-num">14<span class="total"> / 17</span></span></div>
+      <div class="slide-wrap"><div class="slide-frame">
+        <div class="slide-fake">slide 14.png</div>
+      </div></div>
+    </div>
+  </main>
+  <div class="footer">
+    <div class="footer-top"><div class="palestrante">Pitch — Vídeos</div>
+      <div class="contador">Slide <strong>13</strong> de <strong>17</strong></div></div>
+    <div class="progress"><div class="progress-fill" style="width:75%"></div></div>
+  </div>
+</div>
+
+<!-- ============ CENA 3: fallback — vídeo sem frame gerado ============ -->
+<div class="cena-label">Cena 3 — fallback: vídeo sem frame gerado → botão vermelho "VÍDEO" + tempo</div>
+<div class="tela">
+  <main>
+    <div class="panel panel-atual">
+      <div class="panel-header"><span class="badge">ATUAL</span>
+        <span class="slide-num">14<span class="total"> / 17</span></span></div>
+      <div class="slide-wrap"><div class="slide-frame">
+        <div class="slide-fake">slide 14.png</div>
+      </div></div>
+    </div>
+    <div class="panel panel-proximo">
+      <div class="panel-header"><span class="badge">PRÓXIMO</span>
+        <span class="slide-num">15<span class="total"> / 17</span></span></div>
+      <div class="slide-wrap"><div class="slide-frame">
+        <div class="video-card">
+          <div class="vc-tag">VÍDEO</div>
+          <div class="vc-tempo">00m47s</div>
+        </div>
+      </div></div>
+    </div>
+  </main>
+  <div class="footer">
+    <div class="footer-top"><div class="palestrante">Pitch — Vídeos</div>
+      <div class="contador">Slide <strong>14</strong> de <strong>17</strong></div></div>
+    <div class="progress"><div class="progress-fill" style="width:81%"></div></div>
+  </div>
+</div>
+
+</body>
+</html>

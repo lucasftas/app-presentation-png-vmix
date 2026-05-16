@@ -1,46 +1,53 @@
 @echo off
-REM Build do apresentador portable.
-REM Saida final: dist\Apresentador vMix\ — pasta amigavel pra leigo
-REM   + Iniciar Apresentador.exe  (com icone embutido)
-REM   + LEIA-ME.txt
-REM   + config.json (pre-preenchido)
-REM   + recursos\   (admin.html, index.html, icon.ico)
+REM Build do Apresentador vMix - EXE UNICO.
+REM Tudo embutido: app + index.html + admin.html + icone + ffmpeg + ffprobe.
+REM Saida: dist\Iniciar Apresentador.exe  (distribui so esse arquivo)
+REM config.json e criado ao lado do exe na 1a configuracao via /admin.
 
-chcp 65001 >nul
 pushd "%~dp0.."
+set "ROOT=%CD%"
 
 where pyinstaller >nul 2>&1
 if errorlevel 1 (
-    echo [ERRO] PyInstaller nao encontrado. Instale com:
-    echo     pip install pyinstaller
+    echo [ERRO] PyInstaller nao encontrado. Instale com: pip install pyinstaller
     popd
     pause
     exit /b 1
 )
 
-if not exist assets\icon.ico (
-    echo [aviso] assets\icon.ico nao existe — gerando...
-    python scripts\gerar_icone.py
+if not exist "%ROOT%\assets\icon.ico" (
+    echo [aviso] assets\icon.ico nao existe - gerando...
+    python "%ROOT%\scripts\gerar_icone.py"
 )
 
-REM Limpa builds anteriores
-if exist dist rmdir /s /q dist
-if exist build rmdir /s /q build
-if exist "Iniciar Apresentador.spec" del "Iniciar Apresentador.spec"
-if exist apresentador.spec del apresentador.spec
+REM Localiza ffmpeg/ffprobe pra embutir no exe (frame de video do input List)
+set "FFMPEG="
+set "FFPROBE="
+for /f "delims=" %%F in ('where ffmpeg 2^>nul') do if not defined FFMPEG set "FFMPEG=%%F"
+for /f "delims=" %%F in ('where ffprobe 2^>nul') do if not defined FFPROBE set "FFPROBE=%%F"
+if not defined FFMPEG (
+    echo [ERRO] ffmpeg nao encontrado no PATH. Instale: winget install Gyan.FFmpeg
+    popd
+    pause
+    exit /b 1
+)
+if not defined FFPROBE (
+    echo [ERRO] ffprobe nao encontrado no PATH. Vem junto com o ffmpeg.
+    popd
+    pause
+    exit /b 1
+)
+echo  ffmpeg : %FFMPEG%
+echo  ffprobe: %FFPROBE%
 
-REM Compila o .exe (single-file, com icone, sem console — tray icon e a UI)
-pyinstaller --onefile ^
-    --name "Iniciar Apresentador" ^
-    --icon assets\icon.ico ^
-    --noconsole ^
-    --hidden-import pystray._win32 ^
-    --hidden-import PIL ^
-    --add-data "src\tray.py;." ^
-    --distpath dist\tmp ^
-    --workpath build ^
-    --specpath build ^
-    --clean -y src\server.py
+REM Limpa builds anteriores
+if exist "%ROOT%\dist" rmdir /s /q "%ROOT%\dist"
+if exist "%ROOT%\build" rmdir /s /q "%ROOT%\build"
+
+REM Compila exe unico - recursos embutidos via --add-data / --add-binary.
+REM Caminhos absolutos: PyInstaller resolve --add-data relativo ao --specpath.
+REM --noconsole: a UI e o icone na bandeja, sem janela preta.
+pyinstaller --onefile --name "Iniciar Apresentador" --icon "%ROOT%\assets\icon.ico" --noconsole --hidden-import pystray._win32 --hidden-import PIL --add-data "%ROOT%\src\tray.py;." --add-data "%ROOT%\src\index.html;." --add-data "%ROOT%\src\admin.html;." --add-data "%ROOT%\assets\icon.ico;." --add-binary "%FFMPEG%;." --add-binary "%FFPROBE%;." --distpath "%ROOT%\dist" --workpath "%ROOT%\build" --specpath "%ROOT%\build" --clean -y "%ROOT%\src\server.py"
 if errorlevel 1 (
     echo [ERRO] Falha na compilacao.
     popd
@@ -48,29 +55,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Monta a estrutura amigavel: dist\Apresentador vMix\
-set "DEST=dist\Apresentador vMix"
-mkdir "%DEST%"
-mkdir "%DEST%\recursos"
-
-move "dist\tmp\Iniciar Apresentador.exe" "%DEST%\" >nul
-copy /y src\index.html "%DEST%\recursos\" >nul
-copy /y src\admin.html "%DEST%\recursos\" >nul
-copy /y assets\icon.ico "%DEST%\recursos\" >nul
-copy /y installer\LEIA-ME.txt "%DEST%\" >nul
-copy /y config.example.json "%DEST%\config.json" >nul
-
-rmdir /s /q dist\tmp
-
 echo.
 echo ============================================================
-echo  Build concluido. Distribuir a pasta:
-echo    %DEST%\
+echo  Build concluido - EXE UNICO:
+echo    dist\Iniciar Apresentador.exe
+for %%F in ("%ROOT%\dist\Iniciar Apresentador.exe") do echo    Tamanho: %%~zF bytes
 echo.
-dir /b "%DEST%"
-echo.
-echo  recursos\:
-dir /b "%DEST%\recursos"
+echo  Distribuir SO esse arquivo. config.json e criado ao lado
+echo  do exe na 1a configuracao (abra /admin no navegador).
 echo ============================================================
 
 popd
