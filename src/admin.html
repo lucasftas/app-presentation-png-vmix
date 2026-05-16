@@ -1448,52 +1448,91 @@ function renderSugestoes() {
   const host = document.getElementById('tab-sugestoes');
   const configuradosGuids = new Set(CONFIGURADOS.map(c => c.guid));
 
+  // 1) Pares blank (Colour) ↔ slideshow em overlay — o slideshow pode ser
+  //    Photos OU List (VideoList).
   const pares = INPUTS_COMPOSTOS.map(comp => {
     const photo = INPUTS_PHOTOS.find(p => p.guid === comp.childGuid);
-    if (!photo) return null;
-    const jaConfig = configuradosGuids.has(photo.guid);
-    return { comp, photo, jaConfig };
+    const list = INPUTS_LISTS.find(l => l.guid === comp.childGuid);
+    const child = photo || list;
+    if (!child) return null;
+    return { comp, child, kind: photo ? 'photos' : 'list',
+             jaConfig: configuradosGuids.has(child.guid) };
   }).filter(Boolean);
 
-  document.getElementById('count-sug').textContent = pares.length;
+  // 2) Inputs List "avulsos" — usados direto (sem Colour por cima) e ainda
+  //    não configurados. List normalmente entra direto, sem blank.
+  const guidsEmPar = new Set(pares.map(p => p.child.guid));
+  const listsAvulsas = INPUTS_LISTS.filter(
+    l => !configuradosGuids.has(l.guid) && !guidsEmPar.has(l.guid));
 
-  if (pares.length === 0) {
-    host.innerHTML = `<div class="section-hint">Nenhuma sugestão — sem Colour envelopando Photos no vMix conectado.</div>`;
+  const total = pares.length + listsAvulsas.length;
+  document.getElementById('count-sug').textContent = total;
+
+  if (total === 0) {
+    host.innerHTML = `<div class="section-hint">Nenhuma sugestão — sem par Colour↔slideshow nem input List disponível no vMix conectado.</div>`;
     return;
   }
 
-  host.innerHTML = `
+  let html = '';
+
+  if (pares.length) {
+    html += `
     <div class="section-hint">
-      Detectei <strong>${pares.length} pares</strong> onde um input <em>Colour</em> (blank) tem um <em>Photos</em> em overlay[1].
-      Este é o seu padrão: monte uma vez e adicione como palestrante com 1 clique — o monitor segue o Photos tanto quando o blank está em Program quanto quando está em overlay global.
+      Detectei <strong>${pares.length} par(es)</strong> onde um input <em>Colour</em> (blank) tem um <em>slideshow</em> (Photos ou List) em overlay[1].
     </div>
     <div class="suggestion-group">
       <div class="head">
         <div class="title">⚡ Pares blank ↔ slideshow detectados</div>
         <div class="sub">clique em "adicionar" para configurar</div>
       </div>
-      ${pares.map(({comp, photo, jaConfig}) => `
+      ${pares.map(({comp, child, kind, jaConfig}) => {
+        const badge = kind === 'list'
+          ? `<span class="badge">List · ${child.total} itens</span>`
+          : `<span class="badge">${child.total} slides</span>`;
+        return `
         <div class="suggestion-pair">
           <div class="slot">
             <div class="lbl">Blank (Colour)</div>
-            <div class="val"><span class="inline-num">${padNum(comp.num)}</span> ${comp.title.trim()}</div>
+            <div class="val"><span class="inline-num">${padNum(comp.num)}</span> ${escapeHtml((comp.title || '').trim())}</div>
             <div class="guid">${shortGuid(comp.guid)}</div>
           </div>
           <div class="arrow">↔</div>
           <div class="slot" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
             <div style="flex:1">
-              <div class="lbl">Slideshow (Photos)</div>
-              <div class="val"><span class="inline-num">${padNum(photo.num)}</span> ${photo.shortTitle} <span class="badge">${photo.total} slides</span></div>
-              <div class="guid">${shortGuid(photo.guid)}</div>
+              <div class="lbl">${kind === 'list' ? 'Playlist (List)' : 'Slideshow (Photos)'}</div>
+              <div class="val"><span class="inline-num">${padNum(child.num)}</span> ${escapeHtml(child.shortTitle)} ${badge}</div>
+              <div class="guid">${shortGuid(child.guid)}</div>
             </div>
             ${jaConfig
               ? `<span class="badge configured">já configurado</span>`
-              : `<button class="btn primary" onclick="addFromSuggestion('${photo.guid}')">+ adicionar</button>`}
+              : `<button class="btn primary" onclick="addFromSuggestion('${child.guid}')">+ adicionar</button>`}
           </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  if (listsAvulsas.length) {
+    html += `
+    <div class="suggestion-group">
+      <div class="head">
+        <div class="title">🎬 Inputs List detectados</div>
+        <div class="sub">playlist de slides + vídeos — adicione direto, sem precisar de blank</div>
+      </div>
+      ${listsAvulsas.map(l => `
+        <div class="suggestion-pair">
+          <div class="slot" style="flex:1">
+            <div class="lbl">List (VideoList)</div>
+            <div class="val"><span class="inline-num">${padNum(l.num)}</span> ${escapeHtml(l.shortTitle)} <span class="badge">${l.total} itens</span></div>
+            <div class="guid">${shortGuid(l.guid)}</div>
+          </div>
+          <button class="btn primary" onclick="addFromSuggestion('${l.guid}')">+ adicionar</button>
         </div>
       `).join('')}
-    </div>
-  `;
+    </div>`;
+  }
+
+  host.innerHTML = html;
 }
 
 function renderInputRow(input, kind) {
@@ -2213,7 +2252,8 @@ function parseVmix(xml) {
   const compostos = all
     .filter(i => i.type === 'Colour')
     .map(i => {
-      const child = i.overlays.find(ov => photoGuids.has(ov.key));
+      // overlay pode envolver Photos OU List (VideoList)
+      const child = i.overlays.find(ov => palGuids.has(ov.key));
       if (!child) return null;
       return { guid: i.guid, num: i.num, title: i.title, childGuid: child.key };
     })
