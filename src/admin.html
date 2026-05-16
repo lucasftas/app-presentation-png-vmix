@@ -923,6 +923,24 @@
     margin: 16px 0 6px;
     font-weight: 600;
   }
+  /* Nota exibida no modal quando o input escolhido e do tipo List */
+  .list-nota {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: #2a2410;
+    border: 1px solid #f2b70544;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 12px 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #d8cda6;
+  }
+  .list-nota .icon { font-size: 16px; }
+  .list-nota strong { color: #f2b705; }
+  .gt-row { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .gt-status { font-size: 12px; font-family: ui-monospace, monospace; }
   .pasta-suggested {
     background: #14261a;
     border: 1px solid #4caf5044;
@@ -1134,6 +1152,28 @@
       <div class="hint">Preenchido automaticamente do input. Edite aqui ou clique no lápis do card depois.</div>
     </div>
 
+    <div class="field">
+      <label>Tipo de fonte</label>
+      <select id="f-tipo" onchange="onTipoChange()">
+        <option value="photos">Slides — input Photos (pasta de imagens)</option>
+        <option value="list">Lista de vídeos — input List/VideoList do vMix</option>
+      </select>
+      <div class="hint">Definido automaticamente pelo input escolhido. List não precisa de pasta — a playlist (slides + vídeos) vem do próprio vMix.</div>
+    </div>
+
+    <div id="secao-list-nota" class="list-nota" style="display:none">
+      <span class="icon">📋</span>
+      <div>
+        Input <strong>List</strong>: a playlist (slides + vídeos) vem direto do vMix — sem pasta.
+        Gere os frames dos vídeos pra eles aparecerem no apresentador (senão entram como card 🎬).
+        <div class="gt-row">
+          <button class="btn" type="button" id="btn-gerar-thumbs" onclick="gerarThumbs()">🎬 Gerar frames dos vídeos</button>
+          <span id="gerar-thumbs-status" class="gt-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="secao-pasta">
     <div class="modal-section-title">Pasta de imagens (PNG, JPG, JPEG, BMP, GIF, WEBP)</div>
 
     <div id="pasta-suggested" class="pasta-suggested empty"></div>
@@ -1158,6 +1198,7 @@
       Preview das imagens <span class="count" id="preview-count">0</span>
     </div>
     <div class="preview-grid" id="preview-grid" style="display:none"></div>
+    </div><!-- /secao-pasta -->
 
     <div class="modal-diagnostic" id="modal-diag"></div>
 
@@ -1181,6 +1222,7 @@ const INSTANCIAS = [
 
 /* Inputs Photos detectados no vMix — populado pelo pollTick a cada 500ms */
 const INPUTS_PHOTOS = [];
+const INPUTS_LISTS = [];
 
 /* Inputs Colour que envelopam um Photos em overlay[1] — blanks de slides */
 const INPUTS_COMPOSTOS = [];
@@ -1316,8 +1358,19 @@ function renderInstancias() {
 function liveInputInfo(guid) {
   const p = INPUTS_PHOTOS.find(x => x.guid === guid);
   if (p) return { num: p.num, title: p.shortTitle, type: 'Photos', idx: p.idx, total: p.total, filename: p.title };
+  const l = INPUTS_LISTS.find(x => x.guid === guid);
+  if (l) return { num: l.num, title: l.shortTitle, type: 'List', total: l.total };
   const c = INPUTS_COMPOSTOS.find(x => x.guid === guid);
   if (c) return { num: c.num, title: c.title.trim(), type: 'Colour' };
+  return null;
+}
+
+/* Acha um input (Photos ou List) por GUID, anotando o `kind`. */
+function inputByGuid(guid) {
+  const p = INPUTS_PHOTOS.find(x => x.guid === guid);
+  if (p) return { ...p, kind: 'photos' };
+  const l = INPUTS_LISTS.find(x => x.guid === guid);
+  if (l) return { ...l, kind: 'list' };
   return null;
 }
 
@@ -1358,6 +1411,10 @@ function renderConfigurados() {
         <div class="row filename-row"><span>Arquivo</span><span class="val filename-val" title="${escapeHtml(info.filename)}">${escapeHtml(info.filename) || '—'}</span></div>
         <div class="mini-bar"><div class="mini-fill" style="width:${info.total ? (info.idx/info.total)*100 : 0}%"></div></div>
       `
+      : info && info.type === 'List'
+      ? `<div class="row"><span>List</span><span class="val">${info.total} itens (slides + vídeos)</span></div>`
+      : c.tipo === 'list'
+      ? `<div class="row"><span>List</span><span class="val">${c.slides || '—'} itens (último fetch)</span></div>`
       : `<div class="row"><span>Slides</span><span class="val">${c.slides} imagens (último fetch)</span></div>`;
 
     return `
@@ -1372,7 +1429,9 @@ function renderConfigurados() {
         <div class="row"><span>Input agora</span>${liveNum}</div>
         ${slidesInfo}
         <div class="row"><span>GUID</span><span class="val">${shortGuid(c.guid)}</span></div>
-        <div class="folder" title="${escapeHtml(c.pasta)}">${escapeHtml(naturalPasta(c.pasta))}</div>
+        ${c.tipo === 'list'
+          ? `<div class="folder">📋 Input List — playlist vem do vMix (sem pasta)</div>`
+          : `<div class="folder" title="${escapeHtml(c.pasta)}">${escapeHtml(naturalPasta(c.pasta))}</div>`}
         <div class="actions">
           <button class="btn" type="button" onclick="openModal('${c.guid}')">config</button>
           <button class="btn danger" type="button" onclick="removerPalestrante(${i})">remover</button>
@@ -1524,12 +1583,20 @@ function openModal(prefilGuid = null) {
   document.getElementById('modal-title').textContent = existente ? 'Configurar palestrante' : 'Adicionar palestrante';
 
   const sel = document.getElementById('f-input');
-  sel.innerHTML = INPUTS_PHOTOS.map(p =>
+  const optsP = INPUTS_PHOTOS.map(p =>
     `<option value="${p.guid}" ${p.guid === prefilGuid ? 'selected' : ''}>[${padNum(p.num)}] ${escapeHtml(p.shortTitle)} (${p.total} slides)</option>`
   ).join('');
+  const optsL = INPUTS_LISTS.map(l =>
+    `<option value="${l.guid}" ${l.guid === prefilGuid ? 'selected' : ''}>[${padNum(l.num)}] ${escapeHtml(l.shortTitle)} (${l.total} itens)</option>`
+  ).join('');
+  sel.innerHTML =
+    (optsP ? `<optgroup label="Photos — slides">${optsP}</optgroup>` : '') +
+    (optsL ? `<optgroup label="List — slides + vídeos">${optsL}</optgroup>` : '');
 
   document.getElementById('f-nome').value = existente ? existente.nome : '';
-  document.getElementById('f-pasta').value = existente ? existente.pasta : '';
+  document.getElementById('f-pasta').value = existente && existente.pasta ? existente.pasta : '';
+  document.getElementById('f-tipo').value = (existente && existente.tipo) || 'photos';
+  onTipoChange();
 
   treeGo(null);
   onInputChange(true);
@@ -1549,26 +1616,41 @@ function closeModal() {
 function addFromInput(guid) { openModal(guid); }
 function addFromSuggestion(guid) { openModal(guid); }
 
+/* Liga/desliga a seção de pasta conforme o tipo (photos vs list). */
+function onTipoChange() {
+  const ehList = document.getElementById('f-tipo').value === 'list';
+  document.getElementById('secao-pasta').style.display = ehList ? 'none' : '';
+  document.getElementById('secao-list-nota').style.display = ehList ? '' : 'none';
+  agendarTestar();
+}
+
 async function onInputChange(keepUserName = false) {
   const guid = document.getElementById('f-input').value;
-  const photo = INPUTS_PHOTOS.find(p => p.guid === guid);
-  if (!photo) return;
+  const inp = inputByGuid(guid);
+  if (!inp) return;
+
+  // O tipo (photos/list) segue o input escolhido — sem chance de mismatch.
+  document.getElementById('f-tipo').value = inp.kind;
+  onTipoChange();
 
   const nomeInput = document.getElementById('f-nome');
   const atual = nomeInput.value.trim();
   const vazio = !atual;
   const eraSugestaoAnterior = nomeInput.dataset.suggested && nomeInput.dataset.suggested === atual;
   if (vazio || (!keepUserName && eraSugestaoAnterior)) {
-    nomeInput.value = photo.shortTitle;
-    nomeInput.dataset.suggested = photo.shortTitle;
+    nomeInput.value = inp.shortTitle;
+    nomeInput.dataset.suggested = inp.shortTitle;
   }
+
+  // Input List não tem pasta — playlist vem do vMix. Pula o match de pasta.
+  if (inp.kind === 'list') { agendarTestar(); return; }
 
   const host = document.getElementById('pasta-suggested');
   host.className = 'pasta-suggested empty';
-  host.innerHTML = `<span class="icon">⏳</span> procurando pasta para "<em>${escapeHtml(photo.shortTitle)}</em>"...`;
+  host.innerHTML = `<span class="icon">⏳</span> procurando pasta para "<em>${escapeHtml(inp.shortTitle)}</em>"...`;
 
   let match = null;
-  try { match = await matchFolderByTokens(photo.shortTitle); } catch {}
+  try { match = await matchFolderByTokens(inp.shortTitle); } catch {}
 
   if (match) {
     host.className = 'pasta-suggested';
@@ -1582,7 +1664,7 @@ async function onInputChange(keepUserName = false) {
     `;
   } else {
     host.className = 'pasta-suggested empty';
-    host.innerHTML = `Nenhuma pasta com imagens encontrada para "<em>${escapeHtml(photo.shortTitle)}</em>". Navegue abaixo.`;
+    host.innerHTML = `Nenhuma pasta com imagens encontrada para "<em>${escapeHtml(inp.shortTitle)}</em>". Navegue abaixo.`;
   }
 
   // dispara validate automaticamente
@@ -1801,6 +1883,28 @@ async function testarPalestrante() {
     return;
   }
 
+  // Input List: diagnostico vem da playlist do vMix, sem checagem de pasta.
+  if (document.getElementById('f-tipo').value === 'list') {
+    const ll = [];
+    if (d.status === 'vmix_offline') {
+      ll.push({ cls: 'fail', ico: '✕', msg: d.detalhe });
+    } else if (d.status === 'guid_orfao') {
+      ll.push({ cls: 'fail', ico: '✕', msg: 'GUID não existe no vMix atual' });
+    } else {
+      ll.push({ cls: 'ok', ico: '✓',
+        msg: `GUID existe: input #${padNum(d.num_input_atual)} "${d.shorttitle_atual || '—'}"` });
+      ll.push({
+        cls: d.status === 'ok' ? 'ok' : 'fail',
+        ico: d.status === 'ok' ? '✓' : '✕',
+        msg: d.detalhe || d.status,
+      });
+    }
+    host.innerHTML = ll.map(l =>
+      `<div class="diag-check ${l.cls}"><span class="icon">${l.ico}</span><span class="msg">${escapeHtml(l.msg)}</span></div>`
+    ).join('');
+    return;
+  }
+
   const linhas = [];
   // check 1: GUID
   if (d.status === 'guid_orfao') {
@@ -1845,13 +1949,90 @@ async function testarPalestrante() {
   ).join('');
 }
 
+/* Botão "Gerar frames dos vídeos" — pré-gera os thumbnails dos itens de
+   vídeo do List selecionado (ffmpeg → _thumbpresentation/ ao lado dos vídeos). */
+async function gerarThumbs() {
+  const guid = document.getElementById('f-input').value;
+  const btn = document.getElementById('btn-gerar-thumbs');
+  const st = document.getElementById('gerar-thumbs-status');
+  if (!guid) return;
+  btn.disabled = true;
+  st.textContent = '⏳ iniciando...';
+  st.style.color = '#9aa3b0';
+  try {
+    const r = await fetch('/admin/api/gerar_thumbs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guid }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!d.ok) {
+      st.textContent = '✕ ' + (d.erro || `HTTP ${r.status}`);
+      st.style.color = '#f28b82';
+      btn.disabled = false;
+      return;
+    }
+    // POST OK (iniciou um job novo ou reenganchou num que já rodava) → acompanha
+    pollThumbs(guid, btn, st);
+  } catch (e) {
+    st.textContent = '✕ ' + e.message;
+    st.style.color = '#f28b82';
+    btn.disabled = false;
+  }
+}
+
+/* Polling do progresso do job de geração de thumbs (1s). Reengancha sozinho
+   se o operador recarregar o /admin e clicar de novo. */
+function pollThumbs(guid, btn, st) {
+  fetch('/admin/api/gerar_thumbs/status?guid=' + encodeURIComponent(guid),
+        { cache: 'no-store' })
+    .then(r => r.json())
+    .then(j => {
+      if (!j.ok || j.status === 'inexistente') {
+        st.textContent = '✕ job não encontrado';
+        st.style.color = '#f28b82';
+        btn.disabled = false;
+        return;
+      }
+      if (j.status === 'rodando') {
+        st.textContent = `⏳ ${j.processados}/${j.total || '?'} vídeo(s)...`;
+        st.style.color = '#9aa3b0';
+        setTimeout(() => pollThumbs(guid, btn, st), 1000);
+        return;
+      }
+      // concluido ou erro
+      btn.disabled = false;
+      if (j.status === 'erro') {
+        st.textContent = '✕ ' + (j.erro || 'falhou');
+        st.style.color = '#f28b82';
+      } else if (!j.total) {
+        st.textContent = 'nenhum vídeo nesta List';
+        st.style.color = '#9aa3b0';
+      } else {
+        let msg = `✓ ${j.gerados} gerado(s)`;
+        if (j.existiam) msg += `, ${j.existiam} já existia(m)`;
+        if (j.falharam) msg += `, ${j.falharam} falhou(aram)`;
+        st.textContent = msg;
+        st.style.color = j.falharam ? '#f2b705' : '#7dd87d';
+      }
+    })
+    .catch(() => {
+      // erro de rede transitório → tenta de novo
+      setTimeout(() => pollThumbs(guid, btn, st), 1500);
+    });
+}
+
 async function salvarPalestrante() {
   const nome = document.getElementById('f-nome').value.trim();
   const guid = document.getElementById('f-input').value;
+  const tipo = document.getElementById('f-tipo').value;
   const pasta = document.getElementById('f-pasta').value.trim();
-  if (!nome || !guid || !pasta) { alert('Preencha todos os campos'); return; }
-  const photo = INPUTS_PHOTOS.find(p => p.guid === guid);
-  const entry = { nome, guid, pasta, slides: photo ? photo.total : 0 };
+  if (!nome || !guid) { alert('Preencha nome e input do vMix'); return; }
+  if (tipo === 'photos' && !pasta) { alert('Escolha a pasta de imagens do palestrante'); return; }
+  const inp = inputByGuid(guid);
+  const entry = tipo === 'list'
+    ? { nome, guid, tipo: 'list', slides: inp ? inp.total : 0 }
+    : { nome, guid, tipo: 'photos', pasta, slides: inp ? inp.total : 0 };
 
   let novoArr;
   if (editingGuid) {
@@ -1986,6 +2167,18 @@ function parseVmix(xml) {
   }));
   const photoGuids = new Set(photos.map(p => p.guid));
 
+  // Inputs List (VideoList): a playlist vem em <list><item>; conta os itens.
+  const lists = inputs
+    .filter(i => ['VideoList', 'List'].includes(i.getAttribute('type')))
+    .map(i => ({
+      guid: (i.getAttribute('key') || '').toLowerCase(),
+      num: parseInt(i.getAttribute('number') || '0', 10),
+      shortTitle: i.getAttribute('shortTitle') || i.getAttribute('title') || '',
+      title: i.getAttribute('title') || '',
+      total: i.querySelectorAll('list > item').length,
+    }));
+  const palGuids = new Set([...photoGuids, ...lists.map(l => l.guid)]);
+
   const compostos = all
     .filter(i => i.type === 'Colour')
     .map(i => {
@@ -1998,10 +2191,10 @@ function parseVmix(xml) {
   const activeInput = all.find(i => i.num === activeNum);
   let activeGuidMatch = null;
   if (activeInput) {
-    if (photoGuids.has(activeInput.guid)) {
+    if (palGuids.has(activeInput.guid)) {
       activeGuidMatch = activeInput.guid;
     } else {
-      const ov = activeInput.overlays.find(o => photoGuids.has(o.key));
+      const ov = activeInput.overlays.find(o => palGuids.has(o.key));
       if (ov) activeGuidMatch = ov.key;
     }
   }
@@ -2015,6 +2208,7 @@ function parseVmix(xml) {
     programTitle: activeInput ? activeInput.title : '',
     activeGuidMatch,
     photos,
+    lists,
     compostos,
     preset,
   };
@@ -2050,15 +2244,17 @@ async function pollTick() {
     inst.status = 'online';
     inst.version = data.version;
     INPUTS_PHOTOS.length = 0; INPUTS_PHOTOS.push(...data.photos);
+    INPUTS_LISTS.length = 0; INPUTS_LISTS.push(...(data.lists || []));
     INPUTS_COMPOSTOS.length = 0; INPUTS_COMPOSTOS.push(...data.compostos);
     LIVE.programNum = data.programNum;
     LIVE.programTitle = data.programTitle;
     LIVE.activeGuidMatch = data.activeGuidMatch;
     LIVE.lastUpdate = Date.now();
 
-    // Atualiza a contagem total de slides dos palestrantes configurados
+    // Atualiza a contagem total de slides/itens dos palestrantes configurados
     CONFIGURADOS.forEach(c => {
-      const p = INPUTS_PHOTOS.find(x => x.guid === c.guid);
+      const p = INPUTS_PHOTOS.find(x => x.guid === c.guid)
+             || INPUTS_LISTS.find(x => x.guid === c.guid);
       if (p) c.slides = p.total;
     });
 
@@ -2331,7 +2527,8 @@ async function boot() {
   try {
     LAST_CONFIG = await apiGet('config');
     CONFIGURADOS = (LAST_CONFIG.palestrantes || []).map(p => ({
-      nome: p.nome, guid: (p.guid || '').toLowerCase(), pasta: p.pasta, slides: 0
+      nome: p.nome, guid: (p.guid || '').toLowerCase(), pasta: p.pasta,
+      tipo: p.tipo || 'photos', slides: 0
     }));
     const vmix = LAST_CONFIG.vmix || {};
     INSTANCIAS[0] = {

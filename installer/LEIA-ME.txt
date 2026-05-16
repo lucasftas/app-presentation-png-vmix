@@ -46,6 +46,23 @@ COMO USAR - 3 PASSOS
    no vMix.
 
 
+SE O WINDOWS BLOQUEAR (1a execucao)
+-----------------------------------
+O app nao tem certificado digital pago, entao o Windows pode
+desconfiar dele na primeira vez. E falso-positivo - normal.
+
+- Tela azul "O Windows protegeu o seu PC" (SmartScreen):
+  clique em "Mais informacoes" e depois "Executar assim mesmo".
+
+- O Defender colocou o .exe em quarentena:
+  Seguranca do Windows > Protecao contra virus e ameacas >
+  Historico de protecao > ache o item > Permitir.
+
+- Pra evitar que o Defender atrapalhe (opcional):
+  clique-direito em "Liberar no Defender.bat" e use
+  "Executar como administrador" - adiciona o app as excecoes.
+
+
 SE ALGO DER ERRADO
 ------------------
 

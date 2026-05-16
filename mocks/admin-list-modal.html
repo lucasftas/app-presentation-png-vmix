@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock — Modal admin: adicionar palestrante List</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0f12;
+    color: #ddd;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 32px;
+  }
+  h1 { font-size: 20px; color: #fff; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 24px; }
+  .cena-label {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: #6aa9ff; font-weight: 700; margin: 26px 0 10px;
+  }
+  .row2 { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+
+  /* ---- modal (recorte do admin.html, tema escuro) ---- */
+  .modal {
+    background: #16191e;
+    border: 1px solid #2a2f37;
+    border-radius: 10px;
+    width: 460px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  }
+  .modal h3 { font-size: 16px; margin-bottom: 14px; color: #fff; }
+  .field { margin-bottom: 12px; }
+  label {
+    display: block; font-size: 12px; color: #9aa3b0;
+    margin-bottom: 5px; font-weight: 600;
+  }
+  select, input {
+    width: 100%; padding: 9px 10px; font-size: 13px;
+    background: #0e1115; border: 1px solid #313842;
+    border-radius: 6px; color: #e6e6e6;
+  }
+  .hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.4; }
+  .modal-section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: #7a808a; margin: 16px 0 6px; font-weight: 600;
+  }
+  .tree-box {
+    background: #0e1115; border: 1px solid #2a2f37; border-radius: 6px;
+    height: 90px; display: flex; align-items: center; justify-content: center;
+    color: #5a6270; font-size: 12px; font-style: italic;
+  }
+  .list-nota {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: #2a2410; border: 1px solid #f2b70544;
+    border-radius: 6px; padding: 10px 12px; margin: 12px 0;
+    font-size: 12px; line-height: 1.45; color: #d8cda6;
+  }
+  .list-nota .icon { font-size: 16px; }
+  .list-nota strong { color: #f2b705; }
+  .diag {
+    margin-top: 12px; background: #0e1115;
+    border: 1px solid #2a2f37; border-radius: 6px; padding: 8px 10px;
+  }
+  .diag-check {
+    display: flex; gap: 8px; align-items: center;
+    font-family: ui-monospace, monospace; font-size: 11px; padding: 3px 0;
+  }
+  .diag-check.ok { color: #7dd87d; }
+  .diag-check.warn { color: #f2b705; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .actions .spacer { flex: 1; }
+  .btn {
+    padding: 8px 14px; font-size: 13px; border-radius: 6px;
+    border: 1px solid #313842; background: #1d222a; color: #ddd; cursor: pointer;
+  }
+  .btn.primary { background: #2ea043; border-color: #2ea043; color: #fff; }
+  .dim { opacity: 0.35; }
+  .tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle;
+  }
+  .tag.list { background: #3a2f05; color: #f2b705; }
+  .tag.photos { background: #14301c; color: #6ee08a; }
+</style>
+</head>
+<body>
+
+<h1>Modal admin — adicionar palestrante</h1>
+<div class="sub">Mesmo modal, dois modos. O <strong>tipo</strong> é definido pelo input do vMix escolhido
+(Photos ou List). List esconde a seção de pasta.</div>
+
+<div class="row2">
+
+  <!-- ===== MODO PHOTOS ===== -->
+  <div>
+    <div class="cena-label">Modo Photos — input de slides (precisa de pasta)</div>
+    <div class="modal">
+      <h3>Adicionar palestrante</h3>
+      <div class="field">
+        <label>Input do vMix (GUID é a chave estável)</label>
+        <select>
+          <optgroup label="Photos — slides">
+            <option selected>[03] Patrícia Anatomia (49 slides)</option>
+          </optgroup>
+          <optgroup label="List — slides + vídeos">
+            <option>[05] Pitch (17 itens)</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label>Nome de exibição</label>
+        <input type="text" value="Patrícia Anatomia">
+      </div>
+      <div class="field">
+        <label>Tipo de fonte</label>
+        <select><option selected>Slides — input Photos (pasta de imagens)</option>
+          <option>Lista de vídeos — input List/VideoList do vMix</option></select>
+        <div class="hint">Definido automaticamente pelo input escolhido.</div>
+      </div>
+      <div class="modal-section-title">Pasta de imagens (PNG, JPG, JPEG, BMP, GIF, WEBP)</div>
+      <div class="tree-box">navegador de pastas + grid de miniaturas</div>
+      <div class="field" style="margin-top:12px">
+        <label>Caminho selecionado</label>
+        <input type="text" value="A:\Editor - vMix\Slides\A - Patrícia">
+      </div>
+      <div class="diag">
+        <div class="diag-check ok"><span>✓</span><span>GUID existe no vMix: input #03</span></div>
+        <div class="diag-check ok"><span>✓</span><span>Pasta acessível (49 imagens)</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn">🔍 testar</button><div class="spacer"></div>
+        <button class="btn">Cancelar</button><button class="btn primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODO LIST ===== -->
+  <div>
+    <div class="cena-label">Modo List — input de vídeos (sem pasta) <span class="tag list">NOVO</span></div>
+    <div class="modal">
+      <h3>Adicionar palestrante</h3>
+      <div class="field">
+        <label>Input do vMix (GUID é a chave estável)</label>
+        <select>
+          <optgroup label="Photos — slides">
+            <option>[03] Patrícia Anatomia (49 slides)</option>
+          </optgroup>
+          <optgroup label="List — slides + vídeos">
+            <option selected>[05] Pitch (17 itens)</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label>Nome de exibição</label>
+        <input type="text" value="Pitch">
+      </div>
+      <div class="field">
+        <label>Tipo de fonte</label>
+        <select><option>Slides — input Photos (pasta de imagens)</option>
+          <option selected>Lista de vídeos — input List/VideoList do vMix</option></select>
+        <div class="hint">Definido automaticamente pelo input escolhido.</div>
+      </div>
+      <div class="list-nota">
+        <span class="icon">📋</span>
+        <div>Input <strong>List</strong>: a playlist (slides + vídeos) vem direto do vMix —
+        sem pasta. Itens de vídeo viram um card 🎬 no modo apresentador.</div>
+      </div>
+      <div style="margin:8px 0;color:#5a6270;font-size:12px;font-style:italic" class="dim">
+        ↑ seção "Pasta de imagens" oculta — não se aplica a List
+      </div>
+      <div class="diag">
+        <div class="diag-check ok"><span>✓</span><span>GUID existe: input #05 "Pitch"</span></div>
+        <div class="diag-check ok"><span>✓</span><span>List: 17 itens — 12 imagens, 5 vídeos (item atual #10)</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn">🔍 testar</button><div class="spacer"></div>
+        <button class="btn">Cancelar</button><button class="btn primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

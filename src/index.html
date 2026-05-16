@@ -97,17 +97,22 @@
     max-width: 100%;
     max-height: 100%;
     background: #e8e8e8;
-    border: 4px solid #222;
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+    /* Moldura colorida via box-shadow (ring), NÃO border: border + box-sizing
+       comeria o aspect-ratio e deixaria a área interna fora de 16:9 → o slide
+       16:9 apareceria com letterbox. box-shadow não ocupa a caixa. */
+    box-shadow: 0 0 0 4px #222, 0 6px 24px rgba(0,0,0,0.18);
     position: relative;
+    /* container de query: tag/card de vídeo escalam pelo frame (cqmin),
+       não pela viewport — senão estouram quando o painel é estreito. */
+    container-type: size;
   }
-  .panel-atual .slide-frame { border-color: #2ea043; }
-  .panel-proximo .slide-frame { border-color: #f2b705; }
+  .panel-atual .slide-frame   { box-shadow: 0 0 0 4px #2ea043, 0 6px 24px rgba(0,0,0,0.18); }
+  .panel-proximo .slide-frame { box-shadow: 0 0 0 4px #f2b705, 0 6px 24px rgba(0,0,0,0.18); }
   .slide-frame img {
     max-width: 100%;
     max-height: 100%;
@@ -132,7 +137,7 @@
   /* Fim da apresentação — canvas do próximo fica cor do fundo + "FIM" grande */
   .panel-proximo.fim .slide-frame {
     background: #f2f2f2;
-    border-color: #c8cdd4;
+    box-shadow: 0 0 0 4px #c8cdd4, 0 6px 24px rgba(0,0,0,0.18);
   }
   .panel-proximo.fim .slide-frame .placeholder {
     background: transparent;
@@ -141,6 +146,77 @@
     font-weight: 800;
     letter-spacing: 10px;
     font-style: normal;
+  }
+
+  /* ===== Fallback de vídeo (input List, sem frame gerado) =====
+     Sem thumbnail no disco: mostra só o botão vermelho "VÍDEO" + a duração.
+     Tamanhos em vh pra escalar com a tela. */
+  .video-card {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5cqmin;
+    background: #e8e8e8;
+  }
+  /* hidden é sobrescrito por display:flex — força esconder quando setado */
+  .video-card[hidden] { display: none; }
+  .video-card .vc-tag {
+    background: #e0182d;
+    color: #fff;
+    font-size: 15cqmin;
+    font-weight: 800;
+    letter-spacing: 1cqmin;
+    padding: 4cqmin 7cqmin;
+    border-radius: 3cqmin;
+    box-shadow: 0 1cqmin 3cqmin rgba(0,0,0,0.3);
+    line-height: 1;
+  }
+  .video-card .vc-tempo {
+    font-size: 10cqmin;
+    font-weight: 700;
+    color: #333;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5cqmin;
+    line-height: 1;
+  }
+
+  /* Tag "VÍDEO" — retângulo vermelho arredondado no canto do frame.
+     Aparece sobre o frame pré-gerado quando o item da List é um vídeo. */
+  .video-tag {
+    position: absolute;
+    top: 4cqmin;
+    left: 4cqmin;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.6cqmin;
+  }
+  .video-tag[hidden] { display: none; }
+  .video-tag .vt-label {
+    background: #e0182d;
+    color: #fff;
+    font-size: 8cqmin;
+    font-weight: 800;
+    letter-spacing: 0.6cqmin;
+    padding: 2cqmin 4cqmin;
+    border-radius: 2.4cqmin;
+    box-shadow: 0 1cqmin 3cqmin rgba(0,0,0,0.45);
+    line-height: 1;
+  }
+  .video-tag .vt-time {
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    font-size: 5.4cqmin;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 1.4cqmin 3cqmin;
+    border-radius: 1.8cqmin;
+    box-shadow: 0 1cqmin 3cqmin rgba(0,0,0,0.4);
+    line-height: 1;
   }
 
   /* Rodapé — escala 150% */
@@ -561,6 +637,8 @@
     <div class="slide-wrap">
       <div class="slide-frame">
         <img id="img-atual" alt="Slide atual" hidden>
+        <div class="video-tag" id="tag-atual" hidden></div>
+        <div class="video-card" id="vc-atual" hidden></div>
         <div class="placeholder" id="ph-atual">— aguardando —</div>
       </div>
     </div>
@@ -573,6 +651,8 @@
     <div class="slide-wrap">
       <div class="slide-frame">
         <img id="img-proximo" alt="Próximo slide" hidden>
+        <div class="video-tag" id="tag-proximo" hidden></div>
+        <div class="video-card" id="vc-proximo" hidden></div>
         <div class="placeholder" id="ph-proximo">— aguardando —</div>
       </div>
     </div>
@@ -609,6 +689,12 @@ const imgAtual = $('img-atual');
 const imgProximo = $('img-proximo');
 const phAtual = $('ph-atual');
 const phProximo = $('ph-proximo');
+const vcAtual = $('vc-atual');
+const vcProximo = $('vc-proximo');
+const tagAtual = $('tag-atual');
+const tagProximo = $('tag-proximo');
+const elsAtual = { img: imgAtual, tag: tagAtual, card: vcAtual, ph: phAtual };
+const elsProximo = { img: imgProximo, tag: tagProximo, card: vcProximo, ph: phProximo };
 const numAtual = $('num-atual');
 const numProximo = $('num-proximo');
 const panelProximo = document.querySelector('.panel-proximo');
@@ -886,6 +972,74 @@ function showStatus(msg, erro = false) {
 }
 function hideStatus() { statusEl.classList.remove('show'); }
 
+/* Duração no formato XXmXXs (ex: 02m14s, 00m47s). */
+function fmtDuracao(ms) {
+  const tot = Math.round(ms / 1000);
+  const m = Math.floor(tot / 60), s = tot % 60;
+  return `${String(m).padStart(2, '0')}m${String(s).padStart(2, '0')}s`;
+}
+
+/* Fallback de vídeo — quando o frame ainda não foi gerado (botão no /admin).
+   Mostra só o botão vermelho "VÍDEO" + a duração (quando disponível). */
+function mostrarCard(cardEl, video) {
+  let html = '<div class="vc-tag">VÍDEO</div>';
+  if (video.duracao_ms && video.duracao_ms > 0) {
+    html += `<div class="vc-tempo">${fmtDuracao(video.duracao_ms)}</div>`;
+  }
+  cardEl.innerHTML = html;
+  cardEl.hidden = false;
+}
+
+/* Pinta um painel (atual/próximo).
+   els = {img, tag, card, ph}. video = {nome,kind,duracao_ms?} ou null.
+   - item de vídeo COM frame  → mostra o frame + tag "VÍDEO" no canto
+   - item de vídeo SEM frame  → card de fallback
+   - item de imagem           → imagem normal */
+function pintarSlot(els, url, video, phText) {
+  if (video) {
+    if (url) {
+      // frame já falhou a carregar antes? vai direto pro card
+      if (els.img.dataset.failed === url) {
+        els.img.hidden = true; els.tag.hidden = true;
+        els.ph.style.display = 'none';
+        mostrarCard(els.card, video);
+        return;
+      }
+      els.card.hidden = true;
+      els.ph.style.display = 'none';
+      // tag de canto: "VÍDEO" + tempo (quando a duração é conhecida)
+      els.tag.innerHTML = '<span class="vt-label">VÍDEO</span>'
+        + (video.duracao_ms > 0
+            ? `<span class="vt-time">${fmtDuracao(video.duracao_ms)}</span>`
+            : '');
+      els.tag.hidden = false;
+      if (els.img.dataset.src !== url) {
+        els.img.dataset.src = url;
+        els.img.onerror = () => {
+          els.img.dataset.failed = url;
+          els.img.hidden = true; els.tag.hidden = true;
+          mostrarCard(els.card, video);
+        };
+        els.img.src = url;
+      }
+      els.img.hidden = false;
+    } else {
+      // sem frame gerado → card
+      els.img.hidden = true;
+      els.img.removeAttribute('src');
+      els.img.dataset.src = '';
+      els.tag.hidden = true;
+      els.ph.style.display = 'none';
+      mostrarCard(els.card, video);
+    }
+  } else {
+    // item de imagem (ou slot vazio)
+    els.tag.hidden = true;
+    els.card.hidden = true;
+    setImg(els.img, els.ph, url, phText);
+  }
+}
+
 function setImg(imgEl, phEl, url, phText = '—') {
   if (url) {
     if (imgEl.dataset.src !== url) {
@@ -927,8 +1081,8 @@ async function tick() {
       // Nao mostra status flutuante (info ja aparece no placeholder do slide
       // e no banner de preview). So aparece status em caso de erro real (ok=false).
       hideStatus();
-      setImg(imgAtual, phAtual, null, 'Sem palestrante ao vivo');
-      setImg(imgProximo, phProximo, null, 'Aguardando palestrante');
+      pintarSlot(elsAtual, null, null, 'Sem palestrante ao vivo');
+      pintarSlot(elsProximo, null, null, 'Aguardando palestrante');
       panelProximo.classList.remove('fim');
       numAtual.innerHTML = '—';
       numProximo.innerHTML = '—';
@@ -941,9 +1095,11 @@ async function tick() {
     }
 
     hideStatus();
-    setImg(imgAtual, phAtual, s.atual_url);
-    const noFim = s.ativo && !s.proximo_url;
-    setImg(imgProximo, phProximo, s.proximo_url, noFim ? 'FIM' : 'Sem próximo slide');
+    // ATUAL e PRÓXIMO — vídeo com frame mostra o frame + tag "VÍDEO";
+    // vídeo sem frame mostra card; imagem mostra a imagem.
+    pintarSlot(elsAtual, s.atual_url, s.atual_video, '—');
+    const noFim = s.ativo && !s.proximo_url && !s.proximo_video;
+    pintarSlot(elsProximo, s.proximo_url, s.proximo_video, noFim ? 'FIM' : 'Sem próximo slide');
     panelProximo.classList.toggle('fim', noFim);
 
     // Números grandes ao lado dos slides

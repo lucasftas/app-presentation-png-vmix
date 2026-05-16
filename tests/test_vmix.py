@@ -84,7 +84,7 @@ class ComputeStateTests(unittest.TestCase):
         self.pasta = Path(self.tmp.name) / "wagner"
         make_images(self.pasta, [f"slide {i:02d}.png" for i in range(1, 50)])
         self._pal_orig = server.PALESTRANTES
-        server.PALESTRANTES = {WAGNER_GUID: ("Wagner", self.pasta, sorted(p.name for p in self.pasta.iterdir()))}
+        server.PALESTRANTES = {WAGNER_GUID: ("Wagner", self.pasta, sorted(p.name for p in self.pasta.iterdir()), "photos")}
 
     def tearDown(self):
         server.PALESTRANTES = self._pal_orig
@@ -255,9 +255,11 @@ class PreviewPalestranteTests(unittest.TestCase):
         self._cfg_orig = server.CFG
         server.PALESTRANTES = {
             WAGNER_GUID: ("Wagner", self.pasta_wag,
-                          sorted(p.name for p in self.pasta_wag.iterdir())),
+                          sorted(p.name for p in self.pasta_wag.iterdir()),
+                          "photos"),
             VINI_GUID: ("Vinicius", self.pasta_vin,
-                        sorted(p.name for p in self.pasta_vin.iterdir())),
+                        sorted(p.name for p in self.pasta_vin.iterdir()),
+                        "photos"),
         }
         # Reseta CFG pra nao herdar ui_prefs de config.json real
         server.CFG = {"vmix": {}, "server_port": 5000, "palestrantes": []}

@@ -65,7 +65,7 @@ class PosicaoPalestranteTests(unittest.TestCase):
         self._pal_orig = server.PALESTRANTES
         server.PALESTRANTES = {
             self.guid: ("Wagner", self.pasta,
-                        sorted(p.name for p in self.pasta.iterdir())),
+                        sorted(p.name for p in self.pasta.iterdir()), "photos"),
         }
 
     def tearDown(self):
@@ -113,8 +113,8 @@ class MontarMenuItemsTests(unittest.TestCase):
             ],
         }
         server.PALESTRANTES = {
-            "g1": ("Wagner", self.pasta, ["a.png", "b.png"]),
-            "g2": ("Vini", self.pasta, ["a.png", "b.png"]),
+            "g1": ("Wagner", self.pasta, ["a.png", "b.png"], "photos"),
+            "g2": ("Vini", self.pasta, ["a.png", "b.png"], "photos"),
         }
 
     def tearDown(self):

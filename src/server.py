@@ -20,6 +20,7 @@ import logging.handlers
 import mimetypes
 import os
 import re
+import shutil
 import socket
 import socketserver
 import string
@@ -39,6 +40,13 @@ from pathlib import Path
 # Fonte: dialogo de arquivos do vMix — "*.JPG;*.BMP;*.PNG;*.GIF;*.JPEG;*.WEBP".
 IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
 
+# Formatos de video que podem aparecer como item de um input List (VideoList).
+# Itens de video nao tem como ser exibidos no apresentador — viram um card "VIDEO".
+VIDEO_EXTS: tuple[str, ...] = (
+    ".mp4", ".mov", ".mkv", ".avi", ".wmv", ".ts", ".m4v",
+    ".mpg", ".mpeg", ".webm", ".flv", ".m2ts", ".mts",
+)
+
 _NAT_RE = re.compile(r"(\d+)")
 
 
@@ -53,6 +61,21 @@ def _natural_key(s: str) -> list:
 
 def _is_image(p: Path) -> bool:
     return p.suffix.lower() in IMAGE_EXTS
+
+
+def _kind_de(nome: str) -> str:
+    """Classifica um item de List pela extensao: 'imagem', 'video' ou 'outro'.
+
+    Inputs List do vMix misturam slides (PNG/JPG) e videos (MP4/MOV) na mesma
+    playlist. O apresentador exibe a imagem quando da, e um card "VIDEO" quando
+    o item e um video (nao da pra mostrar frame).
+    """
+    ext = os.path.splitext(nome)[1].lower()
+    if ext in VIDEO_EXTS:
+        return "video"
+    if ext in IMAGE_EXTS:
+        return "imagem"
+    return "outro"
 
 
 def match_filename(title: str, imagens: list[str]) -> int | None:
@@ -85,19 +108,38 @@ def match_filename(title: str, imagens: list[str]) -> int | None:
 # -------------------- Localizacao --------------------
 
 def app_dir() -> Path:
-    """Pasta onde o .exe/script esta (onde config.json e index.html ficam)."""
+    """Pasta do .exe/script — onde config.json e logs/ ficam (externos)."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
+
+def bundle_dir() -> Path:
+    """Pasta dos recursos embutidos (HTML, ffmpeg, icone).
+
+    No exe --onefile, PyInstaller extrai os --add-data/--add-binary pra um
+    diretorio temporario em sys._MEIPASS. Fora do exe, e a pasta do script.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    return Path(base) if base else app_dir()
+
+
 APP_DIR = app_dir()
+_BUNDLE_DIR = bundle_dir()
 _RECURSOS_DIR = APP_DIR / "recursos"
 
 
 def _asset_path(name: str) -> Path:
-    """Busca asset em recursos/ (pasta portable) ou APP_DIR (dev mode)."""
-    candidato = _RECURSOS_DIR / name
-    return candidato if candidato.is_file() else APP_DIR / name
+    """Localiza um asset (index.html, admin.html, icon.ico).
+
+    Ordem: embutido no exe (_MEIPASS) → pasta recursos/ (portable antigo)
+    → APP_DIR (dev mode).
+    """
+    for base in (_BUNDLE_DIR, _RECURSOS_DIR, APP_DIR):
+        cand = base / name
+        if cand.is_file():
+            return cand
+    return APP_DIR / name
 
 
 CONFIG_PATH = APP_DIR / "config.json"
@@ -227,17 +269,32 @@ def _listar_imagens_em(pasta_path: Path) -> list[str]:
 
 
 def carregar_palestrantes(cfg: dict, timeout_por_pasta: float = 5.0) -> dict:
-    """Retorna {guid: (nome, pasta_path, [imagens_ordenadas_natural])}.
+    """Retorna {guid: (nome, pasta_path, [imagens], tipo)}.
+
+    `tipo` e "photos" (default) ou "list":
+    - "photos": input Photos do vMix — slides vem de uma pasta no disco,
+      lida aqui com timeout (default 5s) pra nao travar em UNC lento/caido.
+    - "list": input List (VideoList) — a playlist (slides + videos) vem do
+      proprio XML do vMix em runtime, entao nao precisa de pasta. Fica como
+      (nome, None, [], "list").
 
     Aceita PNG, JPG, JPEG, BMP, GIF, WEBP. Ordenacao natural.
-    Cada pasta e lida com timeout (default 5s) pra nao travar o server
-    em UNC lento/caido.
     """
     out: dict = {}
     for p in cfg.get("palestrantes", []):
         nome = p.get("nome", "").strip()
         guid = p.get("guid", "").strip().lower()
+        tipo = (p.get("tipo") or "photos").strip().lower()
         pasta_raw = p.get("pasta", "").strip()
+
+        if tipo == "list":
+            if not (nome and guid):
+                print(f"[aviso] entrada List invalida (nome/guid): {p}",
+                      file=sys.stderr)
+                continue
+            out[guid] = (nome, None, [], "list")
+            continue
+
         if not (nome and guid and pasta_raw):
             print(f"[aviso] entrada invalida de palestrante: {p}", file=sys.stderr)
             continue
@@ -276,7 +333,7 @@ def carregar_palestrantes(cfg: dict, timeout_por_pasta: float = 5.0) -> dict:
             print(f"[aviso] pasta sem imagens para {nome}: {pasta_path}",
                   file=sys.stderr)
             continue
-        out[guid] = (nome, pasta_path, imagens)
+        out[guid] = (nome, pasta_path, imagens, "photos")
     return out
 
 
@@ -288,14 +345,20 @@ PALESTRANTES = carregar_palestrantes(CFG)
 
 
 def validar_config(new_cfg: dict) -> list[str]:
-    """Retorna lista de erros encontrados no payload. Vazia = OK.
+    """Retorna lista de erros BLOQUEANTES do payload. Vazia = OK pra salvar.
 
-    Valida:
+    Valida (bloqueante):
     - payload e dict
     - 'palestrantes' e lista (se presente)
-    - cada palestrante tem nome, guid, pasta nao-vazios
+    - cada palestrante tem nome e guid; photos tem 'pasta' nao-vazia
     - GUIDs unicos (case-insensitive)
-    - pasta existe no disco e contem >= 1 arquivo de imagem aceita
+    - tipo e 'photos' ou 'list'
+
+    NAO bloqueia por pasta inexistente / vazia no disco: o app e resiliente a
+    isso em runtime (carregar_palestrantes pula, health badge sinaliza) e
+    bloquear aqui impediria salvar QUALQUER coisa quando o config ja tem uma
+    entrada com pasta morta — inclusive impediria remover a propria entrada.
+    O estado da pasta no disco e checado em /admin/api/validate e /health.
     """
     erros: list[str] = []
 
@@ -317,13 +380,17 @@ def validar_config(new_cfg: dict) -> list[str]:
 
         nome = (p.get("nome") or "").strip()
         guid = (p.get("guid") or "").strip().lower()
+        tipo = (p.get("tipo") or "photos").strip().lower()
         pasta_raw = (p.get("pasta") or "").strip()
 
         if not nome:
             erros.append(f"{base}.nome: obrigatorio")
         if not guid:
             erros.append(f"{base}.guid: obrigatorio")
-        if not pasta_raw:
+        if tipo not in ("photos", "list"):
+            erros.append(f"{base}.tipo: deve ser 'photos' ou 'list' (recebido: {tipo!r})")
+        # Input List le a playlist do XML do vMix — nao exige pasta.
+        if tipo == "photos" and not pasta_raw:
             erros.append(f"{base}.pasta: obrigatorio")
 
         if guid:
@@ -334,25 +401,7 @@ def validar_config(new_cfg: dict) -> list[str]:
             else:
                 guids_vistos[guid] = i
 
-        if pasta_raw:
-            pasta_path = Path(pasta_raw)
-            if not pasta_path.is_absolute():
-                pasta_path = (APP_DIR / pasta_raw).resolve()
-            if not pasta_path.is_dir():
-                erros.append(f"{base}.pasta: pasta nao existe: {pasta_path}")
-            else:
-                try:
-                    tem_imagem = any(
-                        x.is_file() and _is_image(x) for x in pasta_path.iterdir()
-                    )
-                except (PermissionError, OSError) as e:
-                    erros.append(f"{base}.pasta: erro lendo pasta: {e}")
-                    tem_imagem = False
-                if not tem_imagem:
-                    erros.append(
-                        f"{base}.pasta: nenhuma imagem encontrada "
-                        f"(formatos aceitos: {', '.join(IMAGE_EXTS)})"
-                    )
+        # Pasta no disco NAO e validada aqui de proposito — ver docstring.
 
     return erros
 
@@ -417,7 +466,10 @@ def rescan_pasta(guid: str) -> list[str]:
     info = PALESTRANTES.get(g)
     if info is None:
         return []
-    nome, pasta_path, _ = info
+    nome, pasta_path, _, tipo = info
+    # List nao tem pasta — playlist vem do vMix em runtime, nada pra rescanear.
+    if tipo == "list" or pasta_path is None:
+        return []
     if not pasta_path.is_dir():
         return []
     try:
@@ -428,7 +480,7 @@ def rescan_pasta(guid: str) -> list[str]:
     except (PermissionError, OSError):
         return []
     with _cfg_lock:
-        PALESTRANTES[g] = (nome, pasta_path, imagens)
+        PALESTRANTES[g] = (nome, pasta_path, imagens, tipo)
     return imagens
 
 
@@ -660,6 +712,213 @@ def vmix_control(funcao: str, guid: str, value: str | None = None) -> dict:
         return {"ok": False, "erro": str(e)}
 
 
+def vmix_list_control(guid: str, acao: str) -> dict:
+    """next/prev/reset para um input List — traduz tudo pra SelectIndex.
+
+    Input List nao tem NextPicture/PreviousPicture; o passo e calculado lendo
+    o indice atual da playlist no XML do vMix. SelectIndex e 1-based.
+    Usado pelo menu do index e pelo tray.
+    """
+    if acao == "reset":
+        return vmix_control("SelectIndex", guid, "1")
+    try:
+        root = fetch_vmix_xml()
+    except Exception as e:
+        return {"ok": False, "erro": f"vMix inacessivel: {e}"}
+    itens, cur = _parse_list_input(_input_by_key(root, guid))
+    if cur is None:
+        return {"ok": False, "erro": "nao consegui ler o indice atual da List"}
+    alvo = cur + 2 if acao == "next" else cur  # cur e 0-based; SelectIndex 1-based
+    alvo = max(1, min(len(itens), alvo))
+    return vmix_control("SelectIndex", guid, str(alvo))
+
+
+# -------------------- Thumbnails de video (input List) --------------------
+
+# Itens de video de um List nao tem frame exibivel. O operador clica "gerar
+# frames" no /admin → ffmpeg extrai 1 frame representativo de cada video pra
+# uma subpasta `_thumbpresentation` ao lado dos arquivos. Depois e so referencia.
+def _achar_ffmpeg_bin(nome: str) -> str | None:
+    """Localiza ffmpeg/ffprobe.
+
+    Prioridade: embutido no exe (_MEIPASS) → ao lado do app (recursos/ ou
+    APP_DIR) → PATH do sistema. Assim o exe unico funciona em qualquer
+    maquina sem ffmpeg instalado.
+    """
+    for base in (_BUNDLE_DIR, _RECURSOS_DIR, APP_DIR):
+        cand = base / f"{nome}.exe"
+        if cand.is_file():
+            return str(cand)
+    return shutil.which(nome)
+
+
+_FFMPEG = _achar_ffmpeg_bin("ffmpeg")
+_FFPROBE = _achar_ffmpeg_bin("ffprobe")
+THUMB_DIR_NAME = "_thumbpresentation"
+
+# Geracao de thumbs roda em background (pode levar minutos numa List grande).
+# Registro de job por guid — o /admin faz polling do progresso. Modelo dict+lock
+# como PROJETOR_MANAGER / _CLIENTES. Limitado pelo nº de inputs List (poucos),
+# sobrescrito a cada run — sem necessidade de GC.
+_thumbs_jobs: dict[str, dict] = {}
+_thumbs_jobs_lock = threading.Lock()
+
+
+def _thumb_path(video_path: Path) -> Path:
+    """Caminho do thumbnail de um video: <pasta>/_thumbpresentation/<nome>.jpg."""
+    return video_path.parent / THUMB_DIR_NAME / (video_path.name + ".jpg")
+
+
+def _dur_path(video_path: Path) -> Path:
+    """Sidecar com a duracao do video: <pasta>/_thumbpresentation/<nome>.dur."""
+    return video_path.parent / THUMB_DIR_NAME / (video_path.name + ".dur")
+
+
+def probe_duracao_ms(video_path: Path) -> int | None:
+    """Duracao do video em ms via ffprobe. None se ffprobe ausente ou falhar."""
+    if not _FFPROBE or not video_path.is_file():
+        return None
+    try:
+        out = subprocess.run(
+            [_FFPROBE, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nokey=1:noprint_wrappers=1", str(video_path)],
+            capture_output=True, text=True, timeout=15,
+            creationflags=0x08000000 if sys.platform == "win32" else 0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    try:
+        seg = float((out.stdout or "").strip())
+    except ValueError:
+        return None
+    return int(seg * 1000) if seg > 0 else None
+
+
+def _ler_dur(video_path: Path) -> int | None:
+    """Le a duracao (ms) do sidecar .dur, se existir."""
+    try:
+        txt = _dur_path(video_path).read_text(encoding="ascii").strip()
+    except OSError:
+        return None
+    return int(txt) if txt.isdigit() else None
+
+
+def _ensure_dur(video_path: Path) -> int | None:
+    """Garante o sidecar .dur (gera via ffprobe se faltar). Retorna ms ou None."""
+    cached = _ler_dur(video_path)
+    if cached is not None:
+        return cached
+    ms = probe_duracao_ms(video_path)
+    if ms is None:
+        return None
+    dp = _dur_path(video_path)
+    try:
+        dp.parent.mkdir(exist_ok=True)
+        dp.write_text(str(ms), encoding="ascii")
+    except OSError:
+        pass
+    return ms
+
+
+def gerar_thumb_video(video_path: Path, force: bool = False) -> str:
+    """Extrai 1 frame representativo do video via ffmpeg.
+
+    Salva em <pasta>/_thumbpresentation/<nome>.jpg. Retorna status:
+    'gerado' | 'existia' | 'sem_ffmpeg' | 'falhou'. Regera se o thumb for
+    mais antigo que o video (video recodificado).
+    """
+    if not _FFMPEG:
+        return "sem_ffmpeg"
+    if not video_path.is_file():
+        return "falhou"
+    thumb = _thumb_path(video_path)
+    try:
+        if not force and thumb.is_file() and \
+                thumb.stat().st_mtime >= video_path.stat().st_mtime:
+            return "existia"
+    except OSError:
+        pass
+    try:
+        thumb.parent.mkdir(exist_ok=True)
+    except OSError:
+        return "falhou"
+    try:
+        # filtro `thumbnail` escolhe um frame representativo (evita frame preto)
+        subprocess.run(
+            [_FFMPEG, "-y", "-i", str(video_path),
+             "-vf", "thumbnail,scale=640:-2", "-frames:v", "1", str(thumb)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=30,
+            creationflags=0x08000000 if sys.platform == "win32" else 0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return "falhou"
+    try:
+        return "gerado" if thumb.is_file() and thumb.stat().st_size > 0 else "falhou"
+    except OSError:
+        return "falhou"
+
+
+def _novo_job_thumbs(guid: str) -> dict:
+    """Estado inicial de um job de geracao de thumbs."""
+    return {
+        "guid": guid, "status": "rodando",
+        "total": 0, "processados": 0,
+        "gerados": 0, "existiam": 0, "falharam": 0, "falhas": [],
+        "erro": None, "iniciado_em": time.time(), "concluido_em": None,
+    }
+
+
+def _thumbs_worker(guid: str) -> None:
+    """Gera os thumbnails de todos os videos de um input List, em background.
+
+    Roda numa thread daemon dedicada (List grande leva minutos). Atualiza
+    _thumbs_jobs[guid] a cada video pra o /admin poder fazer polling do
+    progresso. Reusa gerar_thumb_video + _ensure_dur.
+    """
+    def _set(**kw) -> None:
+        with _thumbs_jobs_lock:
+            if guid in _thumbs_jobs:
+                _thumbs_jobs[guid].update(kw)
+
+    try:
+        try:
+            root = fetch_vmix_xml()
+        except Exception as e:
+            _set(status="erro", erro=f"vMix inacessivel: {e}",
+                 concluido_em=time.time())
+            return
+        inp = _input_by_key(root, guid)
+        if inp is None:
+            _set(status="erro", erro="input List nao encontrado no vMix",
+                 concluido_em=time.time())
+            return
+        itens, _ = _parse_list_input(inp)
+        videos = [it for it in itens if it["kind"] == "video"]
+        _set(total=len(videos))
+
+        cont = {"gerado": 0, "existia": 0, "falhou": 0, "sem_ffmpeg": 0}
+        falhas: list[str] = []
+        for it in videos:
+            vp = Path(it["path"])
+            st = gerar_thumb_video(vp)
+            cont[st] = cont.get(st, 0) + 1
+            _ensure_dur(vp)  # sidecar de duracao (vale pra atual E proximo)
+            if st == "falhou":
+                falhas.append(it["nome"])
+            _set(processados=sum(cont.values()),
+                 gerados=cont["gerado"], existiam=cont["existia"],
+                 falharam=cont["falhou"], falhas=falhas[:10])
+
+        logger.info("gerar_thumbs %s: %s video(s) — %s gerados, %s existiam, "
+                    "%s falharam", guid, len(videos), cont["gerado"],
+                    cont["existia"], cont["falhou"])
+        _set(status="concluido", concluido_em=time.time())
+    except Exception as e:
+        logger.exception("gerar_thumbs worker falhou: %s", guid)
+        _set(status="erro", erro=str(e), concluido_em=time.time())
+
+
 def _input_by_num(root: ET.Element, num: str | None) -> ET.Element | None:
     if num is None:
         return None
@@ -697,6 +956,59 @@ def _find_palestrante_em(root: ET.Element, inp: ET.Element | None,
     return None
 
 
+def _basename(caminho: str) -> str:
+    """Ultimo componente de um path, tolerante a separador Windows ou POSIX.
+
+    Itens de List vem como path absoluto Windows (`A:\\...\\23.png`); pegar o
+    nome com `os.path.basename` so funciona no separador do SO atual, entao
+    quebramos manualmente nos dois.
+    """
+    return re.split(r"[\\/]", caminho.strip())[-1] if caminho else ""
+
+
+def _parse_list_input(inp: ET.Element | None) -> tuple[list[dict], int | None]:
+    """Le um input List (VideoList) do XML do vMix.
+
+    Retorna (itens, indice_atual_0based). Cada item e
+    {"path": <path absoluto>, "nome": <filename>, "kind": imagem|video|outro}.
+
+    O item atual e identificado por `<item selected="true">`; se nenhum item
+    tiver o atributo, cai pro atributo `selectedIndex` do input (que pode vir
+    0-based ou 1-based dependendo da versao do vMix — normalizamos os dois).
+    """
+    if inp is None:
+        return [], None
+    lst = inp.find("list")
+    if lst is None:
+        # Estrutura inesperada — loga pra diagnosticar sem chutar.
+        filhos = sorted({c.tag for c in inp})
+        logger.warning("input List sem <list> (type=%s) — filhos=%s",
+                        inp.get("type"), filhos)
+        return [], None
+
+    itens: list[dict] = []
+    atual: int | None = None
+    for i, it in enumerate(lst.findall("item")):
+        caminho = (it.text or "").strip()
+        nome = _basename(caminho) or caminho
+        itens.append({"path": caminho, "nome": nome, "kind": _kind_de(nome)})
+        if (it.get("selected") or "").strip().lower() == "true":
+            atual = i
+
+    if atual is None and itens:
+        si = (inp.get("selectedIndex") or "").strip()
+        if si.lstrip("-").isdigit():
+            n = int(si)
+            # vMix documenta SelectIndex 1-based pra List (confirmado no
+            # preset .vmix), entao 1-based tem prioridade; 0-based e fallback.
+            if 1 <= n <= len(itens):
+                atual = n - 1
+            elif 0 <= n < len(itens):
+                atual = n
+
+    return itens, atual
+
+
 def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> tuple[str, int] | None:
     """Se o input em Preview do vMix for um palestrante configurado diferente
     do que esta no Program, retorna (nome, total_de_slides). Caso contrario, None.
@@ -708,11 +1020,89 @@ def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> tuple[str,
     achado = _find_palestrante_em(root, preview_inp, PALESTRANTES)
     if achado is None:
         return None
-    guid_prev = achado[0]
+    guid_prev, inp_prev = achado
     if ativo_guid and guid_prev == ativo_guid:
         return None
-    nome, _pasta, imagens = PALESTRANTES[guid_prev]
+    nome, _pasta, imagens, tipo = PALESTRANTES[guid_prev]
+    if tipo == "list":
+        # List le a playlist do XML — conta os itens do proprio input.
+        itens, _ = _parse_list_input(inp_prev)
+        return (nome, len(itens))
     return (nome, len(imagens))
+
+
+def _estado_lista(base: dict, guid: str, nome: str, inp: ET.Element) -> dict:
+    """Monta o estado quando o input ativo e um List (VideoList).
+
+    A playlist (mistura de slides e videos) vem do XML. Itens de imagem sao
+    servidos via /list-img/<guid>/<indice>. Itens de video, se o operador ja
+    gerou os frames (botao no /admin → _thumbpresentation/), sao servidos via
+    /list-thumb/<guid>/<indice> com a tag "VIDEO"; sem frame, viram card.
+    Duracao/posicao so valem pro item ATUAL — o vMix nao expoe dos proximos.
+    """
+    itens, idx = _parse_list_input(inp)
+    if not itens:
+        return {**base, "ok": True, "ativo": False,
+                "palestrante": nome, "tipo": "list",
+                "mensagem": "Input List sem itens"}
+    if idx is None:
+        idx = 0
+
+    atual = itens[idx]
+    proximo = itens[idx + 1] if idx + 1 < len(itens) else None
+
+    gq = urllib.parse.quote(guid)
+
+    def _img_url(slot_idx: int, item: dict) -> str:
+        # ?n=<nome> e so cache-buster (o endpoint ignora) — garante que o
+        # browser nao reuse imagem velha se a List for editada no ar.
+        return f"/list-img/{gq}/{slot_idx}?n={urllib.parse.quote(item['nome'])}"
+
+    def _thumb_url(slot_idx: int, item: dict) -> str | None:
+        # So retorna URL se o thumbnail ja foi gerado no disco.
+        if _thumb_path(Path(item["path"])).is_file():
+            return f"/list-thumb/{gq}/{slot_idx}?n={urllib.parse.quote(item['nome'])}"
+        return None
+
+    estado = {
+        **base, "ok": True, "ativo": True,
+        "palestrante": nome, "guid": guid, "tipo": "list",
+        "indice": idx + 1, "total": len(itens),
+        "atual_url": None, "proximo_url": None,
+        "atual_video": None, "proximo_video": None,
+    }
+
+    if atual["kind"] == "imagem":
+        estado["atual_url"] = _img_url(idx, atual)
+    else:
+        v = {"nome": atual["nome"], "kind": atual["kind"]}
+        if atual["kind"] == "video":
+            # Duracao: sidecar .dur (gerado pelo botao, vale pra qualquer
+            # slot); fallback = atributo `duration` do vMix (so item atual).
+            ms = _ler_dur(Path(atual["path"]))
+            if ms is None:
+                dv = (inp.get("duration") or "").strip()
+                ms = int(dv) if dv.isdigit() and int(dv) > 0 else None
+            if ms:
+                v["duracao_ms"] = ms
+            pos = (inp.get("position") or "").strip()
+            if pos.isdigit():
+                v["posicao_ms"] = int(pos)
+            estado["atual_url"] = _thumb_url(idx, atual)
+        estado["atual_video"] = v
+
+    if proximo is not None:
+        if proximo["kind"] == "imagem":
+            estado["proximo_url"] = _img_url(idx + 1, proximo)
+        else:
+            pv = {"nome": proximo["nome"], "kind": proximo["kind"]}
+            if proximo["kind"] == "video":
+                ms = _ler_dur(Path(proximo["path"]))  # so do sidecar
+                if ms:
+                    pv["duracao_ms"] = ms
+                estado["proximo_url"] = _thumb_url(idx + 1, proximo)
+            estado["proximo_video"] = pv
+    return estado
 
 
 def compute_state() -> dict:
@@ -758,7 +1148,15 @@ def compute_state() -> dict:
                 **_prev_fields(None)}
 
     guid, input_palestrante = achado
-    nome, pasta_path, slides = PALESTRANTES[guid]
+    nome, pasta_path, slides, tipo = PALESTRANTES[guid]
+
+    # Input List (VideoList): playlist vem do XML, nao de pasta. Detecta pelo
+    # tipo configurado ou pelo `type` do proprio input no vMix.
+    input_type = input_palestrante.get("type") or ""
+    if tipo == "list" or input_type in ("VideoList", "List"):
+        return {**_estado_lista(base, guid, nome, input_palestrante),
+                **_prev_fields(ativo_guid)}
+
     title = input_palestrante.get("title", "")
 
     idx = match_filename(title, slides)
@@ -828,6 +1226,22 @@ def diagnosticar_palestrante(
         out["total_no_vmix"] = int(inp.get("duration") or 0) or None
     except ValueError:
         pass
+
+    # Input List: diagnostico le a playlist do XML, nao depende de pasta.
+    if (inp.get("type") or "") in ("VideoList", "List"):
+        itens, idx = _parse_list_input(inp)
+        out["total_na_pasta"] = len(itens)
+        if not itens:
+            out["status"] = "sem_imagens"
+            out["detalhe"] = "input List sem itens"
+        else:
+            imgs = sum(1 for x in itens if x["kind"] == "imagem")
+            vids = sum(1 for x in itens if x["kind"] == "video")
+            pos = (idx + 1) if idx is not None else "?"
+            out["status"] = "ok"
+            out["detalhe"] = (f"List: {len(itens)} itens — {imgs} imagens, "
+                              f"{vids} videos (item atual #{pos})")
+        return out
 
     # pasta vazia → so verificou GUID
     pasta_raw = (pasta or "").strip()
@@ -919,7 +1333,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 or "/admin/api/projetores" in s
                 or "GET /admin/api/ui_prefs" in s
                 or "GET /admin/api/monitors" in s
-                or "GET /admin/api/config" in s):
+                or "GET /admin/api/config" in s
+                or "/admin/api/gerar_thumbs/status" in s):
             return
         # Encaminha pro logger (console + arquivo com rotacao)
         if logger.handlers:
@@ -1002,6 +1417,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             pasta_path = info[1]
+            if pasta_path is None:
+                # palestrante tipo List nao tem pasta — usa /list-img/
+                self.send_error(404)
+                return
             candidate = (pasta_path / arq).resolve()
             try:
                 candidate.relative_to(pasta_path.resolve())
@@ -1018,6 +1437,86 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     }, status=410)
                     return
             self._send_file(candidate)
+            return
+
+        if path.startswith("/list-img/"):
+            # Serve a imagem de um item de um input List, por indice.
+            # O path vem da propria playlist do vMix (confiavel); so o indice
+            # e input do usuario, e fica preso ao range da lista viva.
+            rel = path[len("/list-img/"):]
+            parts = rel.split("/", 1)
+            if len(parts) != 2:
+                self.send_error(404)
+                return
+            guid = parts[0].lower()
+            info = PALESTRANTES.get(guid)
+            if info is None or info[3] != "list":
+                self.send_error(404)
+                return
+            try:
+                slot = int(parts[1])
+            except ValueError:
+                self.send_error(404)
+                return
+            try:
+                root = fetch_vmix_xml()
+            except Exception:
+                self.send_error(502)
+                return
+            itens, _ = _parse_list_input(_input_by_key(root, guid))
+            if slot < 0 or slot >= len(itens):
+                self.send_error(404)
+                return
+            item = itens[slot]
+            if item["kind"] != "imagem":
+                self.send_error(404)  # item de video nao tem imagem
+                return
+            candidate = Path(item["path"])
+            if not candidate.is_file():
+                self.send_error(404)
+                return
+            # cache=False: arquivo local (mesma maquina do vMix), rapido, e
+            # evita servir imagem velha se a List for reordenada no ar.
+            self._send_file(candidate, cache=False)
+            return
+
+        if path.startswith("/list-thumb/"):
+            # Serve o frame pre-gerado de um item de video de um input List.
+            # Thumbnail vive em <pasta-do-video>/_thumbpresentation/<nome>.jpg
+            # (gerado pelo botao do /admin). 404 se ainda nao foi gerado.
+            rel = path[len("/list-thumb/"):]
+            parts = rel.split("/", 1)
+            if len(parts) != 2:
+                self.send_error(404)
+                return
+            guid = parts[0].lower()
+            info = PALESTRANTES.get(guid)
+            if info is None or info[3] != "list":
+                self.send_error(404)
+                return
+            try:
+                slot = int(parts[1])
+            except ValueError:
+                self.send_error(404)
+                return
+            try:
+                root = fetch_vmix_xml()
+            except Exception:
+                self.send_error(502)
+                return
+            itens, _ = _parse_list_input(_input_by_key(root, guid))
+            if slot < 0 or slot >= len(itens):
+                self.send_error(404)
+                return
+            item = itens[slot]
+            if item["kind"] != "video":
+                self.send_error(404)
+                return
+            thumb = _thumb_path(Path(item["path"]))
+            if not thumb.is_file():
+                self.send_error(404)  # frame ainda nao gerado
+                return
+            self._send_file(thumb, "image/jpeg", cache=False)
             return
 
         self.send_error(404)
@@ -1074,6 +1573,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"diagnosticos": diagnosticar_todos()})
             except Exception as e:
                 self._send_json({"error": str(e)}, status=500)
+            return
+
+        if sub == "gerar_thumbs/status":
+            # Polling do progresso do job de geracao de thumbs (modal /admin).
+            qs = urllib.parse.parse_qs(query)
+            guid = qs.get("guid", [""])[0].strip().lower()
+            if not guid:
+                self._send_json({"ok": False, "erro": "guid obrigatorio"}, status=400)
+                return
+            with _thumbs_jobs_lock:
+                job = _thumbs_jobs.get(guid)
+                job = dict(job) if job else None
+            if job is None:
+                self._send_json({"ok": True, "status": "inexistente"})
+                return
+            self._send_json({"ok": True, **job})
             return
 
         if sub == "clientes":
@@ -1188,6 +1703,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(e)}, status=400)
             return
 
+        if sub == "gerar_thumbs":
+            # Botao "Gerar frames dos videos" do modal — inicia a geracao em
+            # background e retorna na hora; /admin faz polling de gerar_thumbs/status.
+            guid = (payload or {}).get("guid", "").strip().lower()
+            if not guid:
+                self._send_json({"ok": False, "erro": "guid obrigatorio"}, status=400)
+                return
+            if not _FFMPEG:
+                self._send_json({"ok": False, "erro": "ffmpeg nao encontrado",
+                                 "sem_ffmpeg": True})
+                return
+            with _thumbs_jobs_lock:
+                atual = _thumbs_jobs.get(guid)
+                if atual and atual["status"] == "rodando":
+                    # ja ha job rodando pra esse guid — nao duplica
+                    self._send_json({"ok": True, "ja_rodando": True, "job": atual})
+                    return
+                _thumbs_jobs[guid] = _novo_job_thumbs(guid)
+            threading.Thread(target=_thumbs_worker, args=(guid,),
+                             name=f"thumbs_{guid[:8]}", daemon=True).start()
+            self._send_json({"ok": True, "iniciado": True})
+            return
+
         if sub == "projetor_abrir":
             monitor_idx = (payload or {}).get("monitor_idx")
             if monitor_idx is None:
@@ -1230,7 +1768,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "guid nao configurado"}, status=400)
                 return
             info = PALESTRANTES.get(guid)
+            tipo = info[3] if info else "photos"
             total = len(info[2]) if info else 0
+
+            # Input List nao tem NextPicture/PreviousPicture — vmix_list_control
+            # traduz next/prev pra SelectIndex lendo o indice atual no vMix.
+            if tipo == "list" and action in ("next", "prev"):
+                r = vmix_list_control(guid, action)
+                self._send_json(r, status=200 if r.get("ok") else 502)
+                return
 
             try:
                 if action == "next":
@@ -1286,6 +1832,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        """Silencia tracebacks de cliente que desconectou no meio da resposta.
+
+        Browser fechado / F5 durante o polling de 500ms aborta a conexao
+        (BrokenPipe / ConnectionReset / ConnectionAborted no Windows). E ruido
+        normal — nao e erro do servidor. Demais excecoes seguem logando.
+        """
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 # -------------------- Resiliencia: port fallback + single instance --------------------
@@ -1696,8 +2253,11 @@ def main() -> None:
     print("=" * 68)
     if PALESTRANTES:
         print("  Palestrantes carregados:")
-        for guid, (nome, pasta, slides) in PALESTRANTES.items():
-            print(f"    {nome}: {pasta.name} ({len(slides)} imagens)")
+        for guid, (nome, pasta, slides, tipo) in PALESTRANTES.items():
+            if tipo == "list":
+                print(f"    {nome}: List (playlist vem do vMix em runtime)")
+            else:
+                print(f"    {nome}: {pasta.name} ({len(slides)} imagens)")
     else:
         print("  Nenhum palestrante configurado — abrindo o Dashboard admin")
         print("  pra voce configurar. Depois, recarregue no navegador.")

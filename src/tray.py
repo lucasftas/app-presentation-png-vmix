@@ -258,8 +258,17 @@ def _sair(shutdown_fn):
 
 
 def _slide_action(server_module, guid: str, acao: str):
-    """Devolve callback que chama vmix_control('NextPicture'|'PreviousPicture'|'SelectIndex 1')."""
+    """Devolve callback que avanca/volta/reseta o input do palestrante.
+
+    Photos usa NextPicture/PreviousPicture; List nao tem essas funcoes, entao
+    delega pra vmix_list_control (traduz tudo pra SelectIndex).
+    """
     def _cb(icon=None, item=None):
+        info = server_module.PALESTRANTES.get((guid or "").lower())
+        tipo = info[3] if info else "photos"
+        if tipo == "list":
+            server_module.vmix_list_control(guid, acao)
+            return
         if acao == "next":
             server_module.vmix_control("NextPicture", guid)
         elif acao == "prev":

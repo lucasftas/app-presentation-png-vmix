@@ -85,9 +85,21 @@ Flags principais:
 
 Ver CLAUDE.md global do usuário (`~/.claude/CLAUDE.md`). Quando o usuário disser **"filé"**, executar o fluxo automático: commit → push → release → CHANGELOG/IMPLEMENTATIONS/OPERATIONS.
 
+## Tipos de palestrante (`config.json`)
+
+Cada palestrante tem um campo `tipo` (opcional, default `photos`):
+
+- **`photos`**: input `Photos` do vMix. Slides vêm de uma `pasta` no disco; o app cruza o `title` do vMix com os arquivos.
+- **`list`**: input `List` (`VideoList`) do vMix. A playlist (mistura de slides PNG/JPG + vídeos MP4/MOV) vem do **próprio XML do vMix** — não precisa de `pasta`. Itens de vídeo viram um card "VÍDEO" no apresentador; itens de imagem são servidos via `/list-img/<guid>/<indice>`.
+
+```json
+{ "nome": "Pitch", "guid": "05c4d1a0-...", "tipo": "list" }
+```
+
 ## Dicas para assistentes
 
 - **API do vMix** retorna XML. Inputs tipo `Photos`/`ImageList` têm `selectedIndex` e `title` (com nome do arquivo atual no título). Inputs compostos têm `<overlay key="...">` apontando para outros inputs.
+- **Input List (`VideoList`)**: expõe a playlist inteira em `<list><item>caminho</item></list>` (cada `<item>` é um path absoluto). O item atual tem `selected="true"`; fallback é o atributo `selectedIndex` (vMix usa 1-based pra List). `duration`/`position` (ms) só valem pro item atual. Parsing em `_parse_list_input`, estado em `_estado_lista`. next/prev de List não usam `NextPicture` — traduzem pra `SelectIndex` via `vmix_list_control`.
 - **Detecção do palestrante ativo**: 1) se o input em Program tem `key` nos GUIDs configurados → é ele. 2) senão, varrer as `<overlay>` do input em Program procurando um `key` que seja um palestrante.
 - **Cruzamento com filesystem**: o `title` do vMix contém o nome do arquivo (ex: `"SLIDE 001 - Wagner - slide 26.png"`). Fazer match por substring contra a lista ordenada de PNGs da pasta.
 - **UNC paths no Windows**: `cd /d` não suporta UNC no CMD; usar `pushd` quando o `.exe` está em share de rede.
