@@ -124,3 +124,21 @@
 - [x] Iteração 5: file browser estilo explorer (drives + atalhos + tree grande), botão "usar esta pasta" + 🏠 início, navegação livre sem sandbox
 - [x] Teste real: usuário adicionou 2 palestrantes (Wagner + Vinícius), `/state` retornou dados corretos, sem erros no monitor
 - [x] Release v0.1.0 + push para `main`
+
+## 2026-05-16 — suporte a input List (VideoList) + frames de vídeo (v1.1.0)
+
+- [x] Análise da app + leitura do código (`server.py`, `index.html`, `admin.html`, config)
+- [x] Entrevista via `AskUserQuestion`: List mista vídeo+imagem, tag de vídeo, frame pré-gerado, formato do build
+- [x] Inspeção do preset `.vmix` real do usuário pra confirmar a estrutura de um input List
+- [x] Validação contra vMix v29 ao vivo: `<list><item>` não tem atributo `selected`, só `selectedIndex` (1-based)
+- [x] Backend: `_parse_list_input`, `_kind_de`, `_estado_lista`, ramo List no `compute_state`, `vmix_list_control`, endpoints `/list-img` e `/list-thumb`
+- [x] Frames de vídeo: `gerar_thumb_video` (ffmpeg), `_ensure_dur` (ffprobe), pasta `_thumbpresentation/` ao lado dos vídeos
+- [x] Geração assíncrona: `_thumbs_worker` + registro de job + `GET gerar_thumbs/status`, polling no admin
+- [x] Frontend: card de vídeo → frame + tag vermelha "VÍDEO" + tempo no canto; `pintarSlot`, container query
+- [x] Admin: seletor de tipo Photos/List, botão "Gerar frames dos vídeos", diagnóstico List-aware
+- [x] Build: exe único `--onefile` com ffmpeg/ffprobe embutidos; `build.bat` reescrito em ASCII + caminhos absolutos
+- [x] Fixes: `validar_config` não-bloqueante por pasta morta, `box-shadow` no lugar de `border` (letterbox), `cqmin`, `ConnectionAbortedError` silenciado
+- [x] Docs antivírus: seção no `LEIA-ME.txt` + `Liberar no Defender.bat`
+- [x] Monitor de erros do server ativo durante toda a sessão de testes
+- [x] 139 testes verdes; validação ao vivo (2 inputs List, 6 frames gerados, 0 falhas)
+- [x] Release v1.1.0 (filé) — exe único anexado como asset da release
