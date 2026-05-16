@@ -27,12 +27,21 @@ from PIL import Image
 # -------------------- Paths --------------------
 
 def _icon_path(alerta: bool = False) -> Path:
-    """Procura icon.ico (ou icon_alert.ico) em recursos/ (portable) ou assets/ (dev)."""
+    """Procura icon.ico (ou icon_alert.ico).
+
+    Ordem: embutido no exe (`sys._MEIPASS`, build `--onefile`) → `recursos/`
+    (portable antigo) → pasta do exe → `assets/` (dev mode).
+    """
     nome = "icon_alert.ico" if alerta else "icon.ico"
     app_dir = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-    for cand in (app_dir / "recursos" / nome,
-                 app_dir / nome,
-                 app_dir.parent / "assets" / nome):
+    candidatos: list[Path] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidatos.append(Path(meipass) / nome)
+    candidatos += [app_dir / "recursos" / nome,
+                   app_dir / nome,
+                   app_dir.parent / "assets" / nome]
+    for cand in candidatos:
         if cand.is_file():
             return cand
     # fallback: se icon_alert nao existe, usa o normal
