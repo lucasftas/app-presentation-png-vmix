@@ -763,14 +763,22 @@ function aplicarSplitDoServer(ratio) {
    Banner "Wagner entrando em breve" — aparece quando vMix tem um palestrante
    diferente em Preview.
    ======================================================================== */
+function escapeHtml(t) {
+  const d = document.createElement('div');
+  d.textContent = t == null ? '' : String(t);
+  return d.innerHTML;
+}
+
 function atualizarPreviewBanner(s) {
   if (s && s.preview_palestrante) {
     const total = s.preview_total;
-    const meta = total ? `<span class="meta">${total} slides ·</span>` : '';
+    // nome do palestrante vem do config (digitado pelo operador) — escapa
+    // pra um nome com < > & nao quebrar o HTML do banner.
+    const meta = total ? `<span class="meta">${escapeHtml(total)} slides ·</span>` : '';
     previewBanner.innerHTML =
       `<span class="icone">🟡</span>` +
       meta +
-      `<span class="nome">${s.preview_palestrante}</span>` +
+      `<span class="nome">${escapeHtml(s.preview_palestrante)}</span>` +
       `<span class="meta" style="margin-left:16px;margin-right:0">entrando em breve</span>`;
     previewBanner.classList.add('show');
   } else {
@@ -1057,10 +1065,25 @@ function setImg(imgEl, phEl, url, phText = '—') {
   }
 }
 
+let _tickBusy = false;
+
 async function tick() {
+  // Guard de reentrancia: se um tick ainda nao terminou (servidor/rede lento),
+  // nao empilha outro — senao N fetches concorrentes sobrescrevem o estado
+  // fora de ordem e o slide exibido "pula" pra tras.
+  if (_tickBusy) return;
+  _tickBusy = true;
   try {
-    const r = await fetch('/state', { cache: 'no-store' });
-    const s = await r.json();
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 4000);
+    let r, s;
+    try {
+      r = await fetch('/state', { cache: 'no-store', signal: ctrl.signal });
+    } finally {
+      clearTimeout(tid);
+    }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    s = await r.json();
     _stateAtual = s;
     atualizarBotoesMenu();
 
@@ -1119,6 +1142,8 @@ async function tick() {
   } catch (e) {
     showStatus('Sem conexão com o servidor', true);
     atualizarOfflineBanner(true);
+  } finally {
+    _tickBusy = false;
   }
 }
 

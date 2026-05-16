@@ -81,15 +81,23 @@ def url_lan(server_module) -> str:
 
 # -------------------- Clipboard (Windows) --------------------
 
-def copiar_para_clipboard(texto: str) -> None:
-    """Copia texto pro clipboard usando tkinter (stdlib)."""
-    root = tk.Tk()
-    root.withdraw()
-    root.clipboard_clear()
-    root.clipboard_append(texto)
-    root.update()
-    root.after(200, root.destroy)
-    root.mainloop()
+def copiar_para_clipboard(texto: str) -> bool:
+    """Copia texto pro clipboard via tkinter (stdlib). Retorna True se deu certo.
+
+    Roda dentro de um callback do pystray (thread do icone, nao a main) — se o
+    Tcl falhar nessa thread, NAO deve propagar e derrubar o menu do tray.
+    """
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.clipboard_clear()
+        root.clipboard_append(texto)
+        root.update()
+        root.after(200, root.destroy)
+        root.mainloop()
+        return True
+    except Exception:
+        return False
 
 
 # -------------------- Dialog pra editar IP --------------------
@@ -150,13 +158,18 @@ def parse_host_port(raw: str, default_port: int = 8088) -> tuple[str, int] | Non
 # -------------------- Acoes de sistema --------------------
 
 def abrir_pasta_logs(server_module) -> None:
-    """Abre a pasta de logs no Explorer."""
+    """Abre a pasta de logs no Explorer. Nao propaga erro pro callback do tray."""
     path = server_module.LOG_DIR
-    path.mkdir(exist_ok=True)
     try:
+        path.mkdir(exist_ok=True)
         os.startfile(str(path))  # type: ignore[attr-defined]
     except AttributeError:
-        subprocess.Popen(["xdg-open", str(path)])
+        try:
+            subprocess.Popen(["xdg-open", str(path)])
+        except OSError:
+            pass
+    except OSError:
+        pass
 
 
 # -------------------- Callbacks do menu --------------------
@@ -243,8 +256,21 @@ def _liberar_firewall(server_module):
 
 def _reiniciar(server_module, shutdown_fn):
     def _cb(icon=None, item=None):
-        # Relanca o proprio exe/python antes de sair
         import subprocess as _sp
+        # Para o server (libera a porta) e SOLTA o mutex single-instance ANTES
+        # de relancar — senao a nova instancia ve o mutex vivo e aborta com
+        # "ja esta rodando", deixando o app fechado sem reabrir.
+        if shutdown_fn:
+            try:
+                shutdown_fn()
+            except Exception:
+                pass
+        try:
+            si = getattr(server_module, "_single_instance", None)
+            if si is not None:
+                si.release()
+        except Exception:
+            pass
         try:
             if getattr(sys, "frozen", False):
                 _sp.Popen([sys.executable])
@@ -252,9 +278,10 @@ def _reiniciar(server_module, shutdown_fn):
                 _sp.Popen([sys.executable, *sys.argv])
         except Exception as e:
             print(f"[erro] reiniciar: {e}", file=sys.stderr)
-        if shutdown_fn:
-            shutdown_fn()
-        icon.stop()
+        try:
+            icon.stop()
+        except Exception:
+            pass
     return _cb
 
 
@@ -515,56 +542,64 @@ class MonitorNotificacoes:
 
     def _loop(self) -> None:
         while not self._stop.wait(1.5):
-            # 1. Self-check do HTTP server interno (detecta thread zumbi)
-            ok_self = self.server.http_self_check(self.server.SERVER_PORT, timeout=0.8)
-            if not ok_self:
-                self._self_check_falhas += 1
-                if self._self_check_falhas >= 3 and not self._ja_notificou_servidor_morto:
-                    self._notify(
-                        "🔴 Servidor interno parou de responder.\n"
-                        "Clique no tray → Configs → Reiniciar servidor."
-                    )
-                    self._ja_notificou_servidor_morto = True
-            else:
-                if self._ja_notificou_servidor_morto:
-                    self._notify("🟢 Servidor interno voltou")
-                self._self_check_falhas = 0
-                self._ja_notificou_servidor_morto = False
-
             try:
-                s = self.server.compute_state()
+                self._iteracao()
             except Exception:
-                continue
+                # Uma falha inesperada num tick nao pode matar a thread de
+                # notificacoes — ela precisa sobreviver o evento inteiro.
+                pass
 
-            # 2. vMix offline >10s
-            if not s.get("ok"):
-                if self._vmix_offline_desde is None:
-                    self._vmix_offline_desde = time.time()
-                elif (time.time() - self._vmix_offline_desde > 10
-                      and not self._ja_notificou_offline):
-                    self._notify("🔴 vMix offline há 10+ segundos")
-                    self._ja_notificou_offline = True
-                    self._setar_estado_alerta(True)
-                continue
+    def _iteracao(self) -> None:
+        # 1. Self-check do HTTP server interno (detecta thread zumbi)
+        ok_self = self.server.http_self_check(self.server.SERVER_PORT, timeout=0.8)
+        if not ok_self:
+            self._self_check_falhas += 1
+            if self._self_check_falhas >= 3 and not self._ja_notificou_servidor_morto:
+                self._notify(
+                    "🔴 Servidor interno parou de responder.\n"
+                    "Clique no tray → Configs → Reiniciar servidor."
+                )
+                self._ja_notificou_servidor_morto = True
+        else:
+            if self._ja_notificou_servidor_morto:
+                self._notify("🟢 Servidor interno voltou")
+            self._self_check_falhas = 0
+            self._ja_notificou_servidor_morto = False
 
-            # vMix voltou — reset flags
-            if self._ja_notificou_offline:
-                self._notify("🟢 vMix voltou online")
-                self._setar_estado_alerta(False)
-            self._vmix_offline_desde = None
-            self._ja_notificou_offline = False
+        try:
+            s = self.server.compute_state()
+        except Exception:
+            return
 
-            # 3. Mudanca de palestrante ao vivo
-            guid_atual = s.get("guid") if s.get("ativo") else None
-            nome_atual = s.get("palestrante") if s.get("ativo") else None
-            if guid_atual != self._ultimo_guid_ao_vivo:
-                if guid_atual:
-                    self._notify(f"🟢 {nome_atual} entrou no ar")
-                elif self._ultimo_guid_ao_vivo and self._ultimo_nome_ao_vivo:
-                    self._notify(f"⚪ {self._ultimo_nome_ao_vivo} saiu do ar")
-                self._ultimo_guid_ao_vivo = guid_atual
-                if nome_atual:
-                    self._ultimo_nome_ao_vivo = nome_atual
+        # 2. vMix offline >10s
+        if not s.get("ok"):
+            if self._vmix_offline_desde is None:
+                self._vmix_offline_desde = time.time()
+            elif (time.time() - self._vmix_offline_desde > 10
+                  and not self._ja_notificou_offline):
+                self._notify("🔴 vMix offline há 10+ segundos")
+                self._ja_notificou_offline = True
+                self._setar_estado_alerta(True)
+            return
+
+        # vMix voltou — reset flags
+        if self._ja_notificou_offline:
+            self._notify("🟢 vMix voltou online")
+            self._setar_estado_alerta(False)
+        self._vmix_offline_desde = None
+        self._ja_notificou_offline = False
+
+        # 3. Mudanca de palestrante ao vivo
+        guid_atual = s.get("guid") if s.get("ativo") else None
+        nome_atual = s.get("palestrante") if s.get("ativo") else None
+        if guid_atual != self._ultimo_guid_ao_vivo:
+            if guid_atual:
+                self._notify(f"🟢 {nome_atual} entrou no ar")
+            elif self._ultimo_guid_ao_vivo and self._ultimo_nome_ao_vivo:
+                self._notify(f"⚪ {self._ultimo_nome_ao_vivo} saiu do ar")
+            self._ultimo_guid_ao_vivo = guid_atual
+            if nome_atual:
+                self._ultimo_nome_ao_vivo = nome_atual
 
 
 # -------------------- Entry point --------------------
