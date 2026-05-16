@@ -1951,11 +1951,16 @@ async function testarPalestrante() {
 
 /* Botão "Gerar frames dos vídeos" — pré-gera os thumbnails dos itens de
    vídeo do List selecionado (ffmpeg → _thumbpresentation/ ao lado dos vídeos). */
+// Guid do job de thumbs em acompanhamento. O polling para sozinho se o
+// operador trocar de input ou fechar o modal (senao escreveria pra sempre
+// no status, contaminando o de outro palestrante).
+let _thumbsPollGuid = null;
 async function gerarThumbs() {
   const guid = document.getElementById('f-input').value;
   const btn = document.getElementById('btn-gerar-thumbs');
   const st = document.getElementById('gerar-thumbs-status');
   if (!guid) return;
+  _thumbsPollGuid = guid;
   btn.disabled = true;
   st.textContent = '⏳ iniciando...';
   st.style.color = '#9aa3b0';
@@ -1981,13 +1986,21 @@ async function gerarThumbs() {
   }
 }
 
-/* Polling do progresso do job de geração de thumbs (1s). Reengancha sozinho
-   se o operador recarregar o /admin e clicar de novo. */
-function pollThumbs(guid, btn, st) {
+/* Polling do progresso do job de geração de thumbs (1s). Para sozinho se o
+   operador trocar de input ou fechar o modal. `tentativasRede` limita o
+   retry em erro de rede pra não virar loop infinito. */
+function pollThumbs(guid, btn, st, tentativasRede) {
+  tentativasRede = tentativasRede || 0;
+  // operador trocou de input ou fechou o modal → abandona este poll
+  if (_thumbsPollGuid !== guid ||
+      !document.getElementById('modal').classList.contains('show')) {
+    return;
+  }
   fetch('/admin/api/gerar_thumbs/status?guid=' + encodeURIComponent(guid),
         { cache: 'no-store' })
     .then(r => r.json())
     .then(j => {
+      if (_thumbsPollGuid !== guid) return;  // trocou no meio da resposta
       if (!j.ok || j.status === 'inexistente') {
         st.textContent = '✕ job não encontrado';
         st.style.color = '#f28b82';
@@ -1997,7 +2010,7 @@ function pollThumbs(guid, btn, st) {
       if (j.status === 'rodando') {
         st.textContent = `⏳ ${j.processados}/${j.total || '?'} vídeo(s)...`;
         st.style.color = '#9aa3b0';
-        setTimeout(() => pollThumbs(guid, btn, st), 1000);
+        setTimeout(() => pollThumbs(guid, btn, st, 0), 1000);
         return;
       }
       // concluido ou erro
@@ -2017,8 +2030,14 @@ function pollThumbs(guid, btn, st) {
       }
     })
     .catch(() => {
-      // erro de rede transitório → tenta de novo
-      setTimeout(() => pollThumbs(guid, btn, st), 1500);
+      // erro de rede transitório → tenta de novo, até 6× (~9s), depois desiste
+      if (tentativasRede >= 6) {
+        st.textContent = '✕ sem resposta do servidor';
+        st.style.color = '#f28b82';
+        btn.disabled = false;
+        return;
+      }
+      setTimeout(() => pollThumbs(guid, btn, st, tentativasRede + 1), 1500);
     });
 }
 
@@ -2088,8 +2107,14 @@ async function editarNome(i) {
 
 /* Monta payload completo do config.json e persiste via POST */
 let LAST_CONFIG = null;
+function _ehObjetoPlano(x) {
+  return x && typeof x === 'object' && !Array.isArray(x);
+}
 async function persistirConfig(palestrantes) {
-  if (!LAST_CONFIG) LAST_CONFIG = await apiGet('config');
+  if (!_ehObjetoPlano(LAST_CONFIG)) {
+    const c = await apiGet('config');
+    LAST_CONFIG = _ehObjetoPlano(c) ? c : {};
+  }
   const novo = { ...LAST_CONFIG, palestrantes };
   await apiPost('config', novo);
   LAST_CONFIG = novo;
@@ -2118,14 +2143,18 @@ function updateLivePreview() {
 async function fetchVmixXml(host, port) {
   // Tenta CORS direto (mais rapido); em caso de falha de rede/CORS
   // cai pro proxy /admin/api/vmix_xml no proprio server.
+  // Timeout de 3s por tentativa (AbortController) — vMix pendurado nao
+  // pode congelar o polling inteiro (pollingBusy ficaria travado em true).
   const urls = [
     `http://${host}:${port}/api`,
     `/admin/api/vmix_xml`,
   ];
   let ultimoErro = null;
   for (const url of urls) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 3000);
     try {
-      const r = await fetch(url, { cache: 'no-store' });
+      const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
       if (!r.ok) { ultimoErro = new Error('HTTP ' + r.status); continue; }
       const text = await r.text();
       const xml = new DOMParser().parseFromString(text, 'text/xml');
@@ -2133,6 +2162,8 @@ async function fetchVmixXml(host, port) {
       return xml;
     } catch (e) {
       ultimoErro = e;
+    } finally {
+      clearTimeout(tid);
     }
   }
   throw ultimoErro || new Error('vMix inacessível');
@@ -2224,8 +2255,10 @@ async function pollTick() {
   if (document.getElementById('modal').classList.contains('show')) return;
   pollingBusy = true;
   const inst = INSTANCIAS[0];
+
+  // FASE 1 — rede. Falha aqui = vMix/server offline de verdade.
+  let fetched;
   try {
-    // Fetch vMix + health + clientes + ui_prefs + projetores em paralelo
     const [xml, healthResp, clientesResp, prefsResp, projResp] = await Promise.all([
       fetchVmixXml(inst.host, inst.port),
       apiGet('health').catch(() => ({ diagnosticos: [] })),
@@ -2233,15 +2266,29 @@ async function pollTick() {
       apiGet('ui_prefs').catch(() => null),
       apiGet('projetores').catch(() => ({ abertos: [] })),
     ]);
+    fetched = { xml, healthResp, clientesResp, prefsResp, projResp };
+  } catch (e) {
+    inst.status = 'error';
+    inst.error = e.message;
+    failStreak++;
+    if (!offlineSince) offlineSince = Date.now();
+    try { renderInstancias(); atualizarBanner(); atualizarHeartbeat(); } catch (_) {}
+    pollingBusy = false;
+    return;
+  }
+
+  // FASE 2 — parse + render. Erro AQUI e bug de render, NAO "vMix offline":
+  // marcar offline deixaria o dashboard preso. Loga e segue.
+  try {
+    const { xml, healthResp, clientesResp, prefsResp, projResp } = fetched;
+    inst.status = 'online';
     atualizarClientesChip(clientesResp.clientes || []);
     if (prefsResp && prefsResp.split_ratio !== undefined) {
       sincronizarSplitComServer(prefsResp.split_ratio);
     }
     MONITORES_STATE.abertos = projResp.abertos || [];
-    renderProjetores();
     const data = parseVmix(xml);
 
-    inst.status = 'online';
     inst.version = data.version;
     INPUTS_PHOTOS.length = 0; INPUTS_PHOTOS.push(...data.photos);
     INPUTS_LISTS.length = 0; INPUTS_LISTS.push(...(data.lists || []));
@@ -2271,13 +2318,7 @@ async function pollTick() {
     atualizarBanner();
     atualizarHeartbeat();
   } catch (e) {
-    inst.status = 'error';
-    inst.error = e.message;
-    failStreak++;
-    if (!offlineSince) offlineSince = Date.now();
-    renderInstancias();
-    atualizarBanner();
-    atualizarHeartbeat();
+    console.error('pollTick: erro de parse/render (vMix esta OK):', e);
   } finally {
     pollingBusy = false;
   }
@@ -2354,10 +2395,11 @@ function renderProjetores() {
   const countEl = document.getElementById('projetor-count');
   if (!grid) return;
 
-  const abertos = MONITORES_STATE.abertos;
+  const abertos = (MONITORES_STATE.abertos || []).filter(
+    p => p && p.monitor && p.monitor.indice !== undefined);
   const abertoPorMonitor = {};
   abertos.forEach(p => { abertoPorMonitor[p.monitor.indice] = p; });
-  countEl.textContent = `${abertos.length} aberto${abertos.length !== 1 ? 's' : ''}`;
+  if (countEl) countEl.textContent = `${abertos.length} aberto${abertos.length !== 1 ? 's' : ''}`;
 
   if (!MONITORES_STATE.monitores.length) {
     grid.innerHTML = '<div style="color:#7a808a;font-size:12px;padding:10px;">nenhum monitor detectado</div>';

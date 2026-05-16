@@ -34,6 +34,16 @@ import webbrowser
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+# PyInstaller --noconsole pode deixar sys.stdout/stderr como None — qualquer
+# print() (banner, avisos de config) quebraria com AttributeError, e isso roda
+# no import do modulo (carregar_config). Garante um destino seguro antes disso.
+for _stream in ("stdout", "stderr"):
+    if getattr(sys, _stream, None) is None:
+        try:
+            setattr(sys, _stream, open(os.devnull, "w", encoding="utf-8"))
+        except OSError:
+            pass
+
 # -------------------- Constantes globais --------------------
 
 # Formatos de imagem aceitos pelo vMix (Photos/ImageList).
@@ -220,6 +230,18 @@ def _config_default() -> dict:
     }
 
 
+def _backup_config_corrompido(motivo: str) -> None:
+    """Move config.json invalido pra config.bak.json e loga o motivo."""
+    backup = CONFIG_PATH.with_suffix(".bak.json")
+    try:
+        CONFIG_PATH.replace(backup)
+        print(f"[ERRO] config.json {motivo} — movido para {backup.name}, "
+              f"iniciando com config vazia.", file=sys.stderr)
+    except OSError as move_err:
+        print(f"[ERRO] config.json {motivo} e nao consegui fazer backup: "
+              f"{move_err}", file=sys.stderr)
+
+
 def carregar_config() -> dict:
     """Carrega config.json com recovery automatico.
 
@@ -235,22 +257,21 @@ def carregar_config() -> dict:
         return _config_default()
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except json.JSONDecodeError as e:
-        backup = CONFIG_PATH.with_suffix(".bak.json")
-        try:
-            CONFIG_PATH.replace(backup)
-            print(f"[ERRO] config.json corrompido ({e}) — "
-                  f"movido para {backup.name}, iniciando com config vazia.",
-                  file=sys.stderr)
-        except OSError as move_err:
-            print(f"[ERRO] config.json corrompido e nao consegui fazer backup: {move_err}",
-                  file=sys.stderr)
+        _backup_config_corrompido(f"corrompido ({e})")
         return _config_default()
     except OSError as e:
         print(f"[ERRO] falha lendo config.json: {e} — usando config vazia",
               file=sys.stderr)
         return _config_default()
+    # JSON valido mas nao e um objeto (ex: arquivo editado errado virou lista)
+    # — sem isso, CFG.get(...) lancaria AttributeError no import e o exe
+    # --noconsole morreria no boot sem nenhum feedback.
+    if not isinstance(data, dict):
+        _backup_config_corrompido("nao e um objeto JSON")
+        return _config_default()
+    return data
 
 
 # Executor compartilhado: isola operacoes de filesystem (UNC lento, share caido)
@@ -444,6 +465,10 @@ def salvar_ui_prefs(novo: dict) -> None:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 atual = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
+            atual = dict(CFG)
+        # config.json pode existir mas conter JSON nao-objeto — sem isso o
+        # `atual["ui_prefs"] = ...` abaixo levantaria TypeError -> 500.
+        if not isinstance(atual, dict):
             atual = dict(CFG)
         atual["ui_prefs"] = prefs
         tmp = CONFIG_PATH.with_suffix(".json.tmp")
@@ -686,11 +711,37 @@ def list_dir(path_str: str, timeout: float = 3.0) -> dict:
 
 # -------------------- compute_state --------------------
 
-def fetch_vmix_xml() -> ET.Element:
+# Cache curto do XML do vMix. Varios clientes pollam /state a 500ms, mais o
+# tray e o monitor de notificacoes — sem cache seriam N conexoes HTTP ao vMix
+# por tick. O fetch roda sob lock: chamadas concorrentes serializam e a 2a+
+# pega o cache fresco — 1 so conexao ao vMix mesmo se ele estiver lento.
+_xml_cache_lock = threading.Lock()
+_xml_cache: dict = {"ts": 0.0, "root": None}
+
+
+def fetch_vmix_xml(max_age: float = 0.4) -> ET.Element:
+    """XML da API do vMix, com cache de `max_age` segundos (default 400ms).
+
+    O fetch roda FORA do lock: um fetch lento (vMix offline pode levar segundos)
+    nao pode serializar todos os callers — isso travaria o /state pra todos os
+    clientes. O lock so protege a leitura/escrita do cache (instantanea). Na
+    cache fria pode haver alguns fetches paralelos, mas e bounded e nao bloqueia.
+
+    Levanta excecao (URLError/timeout/ParseError) se o vMix estiver inacessivel
+    e nao houver cache utilizavel — os callers ja tratam isso.
+    """
+    with _xml_cache_lock:
+        c = _xml_cache
+        if c["root"] is not None and time.time() - c["ts"] <= max_age:
+            return c["root"]
     url = f"http://{VMIX_HOST}:{VMIX_PORT}/api"
     with urllib.request.urlopen(url, timeout=3) as resp:
         data = resp.read()
-    return ET.fromstring(data)
+    root = ET.fromstring(data)
+    with _xml_cache_lock:
+        _xml_cache["root"] = root
+        _xml_cache["ts"] = time.time()
+    return root
 
 
 def vmix_control(funcao: str, guid: str, value: str | None = None) -> dict:
@@ -1317,6 +1368,10 @@ def diagnosticar_todos() -> list[dict]:
 # -------------------- HTTP handler --------------------
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    # Timeout do socket — sem isso, um cliente que declara Content-Length
+    # maior que o corpo real (ou trava no meio) penduraria a thread pra sempre.
+    timeout = 30
+
     def log_message(self, fmt, *args) -> None:
         try:
             msg = fmt % args if args else fmt
@@ -1535,9 +1590,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _handle_admin_get(self, sub: str, query: str) -> None:
         if sub == "config":
+            # Instalacao nova ainda nao tem config.json (ele e criado no 1o
+            # save). Nesse caso devolve o CFG em memoria (default) — 200, nao
+            # 500 — senao o /admin nem consegue salvar o 1o palestrante.
             try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    self._send_json(json.load(f))
+                if CONFIG_PATH.is_file():
+                    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                        self._send_json(json.load(f))
+                else:
+                    self._send_json(CFG)
             except Exception as e:
                 self._send_json({"error": str(e)}, status=500)
             return
@@ -1687,12 +1748,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_error(404)
 
     def _handle_admin_post(self, sub: str) -> None:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self._send_json({"ok": False, "error": "Content-Length invalido"}, status=400)
+            return
         raw = self.rfile.read(length) if length > 0 else b""
         try:
             payload = json.loads(raw.decode("utf-8")) if raw else None
         except Exception as e:
             self._send_json({"ok": False, "error": f"JSON invalido: {e}"}, status=400)
+            return
+        # Body precisa ser objeto JSON. Lista/string/numero quebrariam o
+        # `(payload or {}).get(...)` dos handlers com AttributeError -> 500 cru.
+        if payload is not None and not isinstance(payload, dict):
+            self._send_json({"ok": False, "error": "payload deve ser um objeto JSON"},
+                             status=400)
             return
 
         if sub == "ui_prefs":
@@ -1743,7 +1814,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 url = f"http://localhost:{SERVER_PORT}/?kiosk=1"
                 pid = PROJETOR_MANAGER.abrir(monitor, url)
                 self._send_json({"ok": True, "pid": pid, "monitor": monitor})
-            except RuntimeError as e:
+            except (RuntimeError, OSError) as e:
+                # RuntimeError = browser nao achado; OSError = falha no Popen
                 self._send_json({"ok": False, "error": str(e)}, status=500)
             return
 
@@ -1777,6 +1849,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 r = vmix_list_control(guid, action)
                 self._send_json(r, status=200 if r.get("ok") else 502)
                 return
+
+            # List: total real vem da playlist viva (info[2] e [] pra list) —
+            # senao a checagem de range do `goto` ficaria desligada.
+            if tipo == "list" and action == "goto":
+                try:
+                    itens, _ = _parse_list_input(_input_by_key(fetch_vmix_xml(), guid))
+                    total = len(itens)
+                except Exception:
+                    total = 0
 
             try:
                 if action == "next":

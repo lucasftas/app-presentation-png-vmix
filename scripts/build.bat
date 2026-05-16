@@ -47,7 +47,7 @@ if exist "%ROOT%\build" rmdir /s /q "%ROOT%\build"
 REM Compila exe unico - recursos embutidos via --add-data / --add-binary.
 REM Caminhos absolutos: PyInstaller resolve --add-data relativo ao --specpath.
 REM --noconsole: a UI e o icone na bandeja, sem janela preta.
-pyinstaller --onefile --name "Iniciar Apresentador" --icon "%ROOT%\assets\icon.ico" --noconsole --hidden-import pystray._win32 --hidden-import PIL --add-data "%ROOT%\src\tray.py;." --add-data "%ROOT%\src\index.html;." --add-data "%ROOT%\src\admin.html;." --add-data "%ROOT%\assets\icon.ico;." --add-data "%ROOT%\assets\icon_alert.ico;." --add-binary "%FFMPEG%;." --add-binary "%FFPROBE%;." --distpath "%ROOT%\dist" --workpath "%ROOT%\build" --specpath "%ROOT%\build" --clean -y "%ROOT%\src\server.py"
+pyinstaller --onefile --name "Iniciar Apresentador" --icon "%ROOT%\assets\icon.ico" --noconsole --paths "%ROOT%\src" --hidden-import pystray._win32 --hidden-import PIL.Image --hidden-import PIL.IcoImagePlugin --hidden-import tkinter --hidden-import tkinter.simpledialog --add-data "%ROOT%\src\tray.py;." --add-data "%ROOT%\src\index.html;." --add-data "%ROOT%\src\admin.html;." --add-data "%ROOT%\assets\icon.ico;." --add-data "%ROOT%\assets\icon_alert.ico;." --add-binary "%FFMPEG%;." --add-binary "%FFPROBE%;." --distpath "%ROOT%\dist" --workpath "%ROOT%\build" --specpath "%ROOT%\build" --clean -y "%ROOT%\src\server.py"
 if errorlevel 1 (
     echo [ERRO] Falha na compilacao.
     popd
