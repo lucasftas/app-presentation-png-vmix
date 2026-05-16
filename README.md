@@ -41,6 +41,7 @@ Este app preenche essa lacuna:
 - **Modo kiosk** (tela cheia limpa, sem cursor) em monitor dedicado
 - Banner **"Fulano entrando em breve"** quando você está em Preview do vMix
 - **"FIM"** destacado quando o slideshow acaba
+- **Suporte a input List (VideoList)** — playlist mista de slides + vídeos; cada vídeo aparece como um frame com tag **"VÍDEO"** e duração
 - Ajuste de proporção atual/próximo por slider
 
 ### ⚙️ Pro operador
@@ -51,6 +52,7 @@ Este app preenche essa lacuna:
 - **File browser estilo explorer** com drives, atalhos detectados, match automático de pasta por nome
 - Badges de saúde por palestrante: `✓ OK` / `⚠ GUID órfão` / `✕ Pasta inacessível` / `⚠ Filename não bate`
 - **Proximidade dos clientes conectados** — chip mostra quantos tablets estão assistindo agora
+- **"Gerar frames dos vídeos"** — pré-extrai (ffmpeg) um frame de cada vídeo de um input List, com barra de progresso
 
 ### 🖥️ System tray nativo Windows
 
@@ -79,9 +81,9 @@ Este app preenche essa lacuna:
 
 ### 1. Baixe o portable
 
-[**⬇️ Download `Apresentador-vMix-v1.0.0.zip` (~29 MB)**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest/download/Apresentador-vMix-v1.0.0.zip)
+[**⬇️ Baixar `Iniciar Apresentador.exe` — release mais recente**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest)
 
-Link direto pro zip da release mais recente — extraia em qualquer lugar, zero instalação.
+**Exe único** (~95 MB) — app + ffmpeg embutidos. Sem instalação, sem dependências: baixe e duplo-clique.
 
 Ou veja [todas as releases](https://github.com/lucasftas/app-presentation-png-vmix/releases).
 
@@ -144,10 +146,11 @@ O filename atual (`title` do XML do vMix) é matched contra os arquivos da pasta
 
 - **Backend:** Python 3.11+ stdlib pura (`http.server`, `urllib`, `xml.etree`, `ctypes`, `tkinter`, `concurrent.futures`) + `pystray` + `Pillow`
 - **Frontend:** HTML/CSS/JS vanilla (sem build step)
-- **Distribuição:** PyInstaller `--onefile` + `--noconsole` → exe portable (~30 MB)
+- **Vídeo:** `ffmpeg` + `ffprobe` (frames e duração dos vídeos de inputs List) — embutidos no exe
+- **Distribuição:** PyInstaller `--onefile` + `--noconsole` → exe único (~95 MB, ffmpeg incluído)
 - **Plataforma:** Windows 10/11 (tray icon + `ctypes.windll`)
 
-**108 testes unittest** cobrindo config, filesystem, vMix parsing, match ancorado, resiliência, projetores e tray.
+**139 testes unittest** cobrindo config, filesystem, vMix parsing (Photos e List), match ancorado, frames de vídeo, resiliência, projetores e tray.
 
 ---
 
@@ -166,7 +169,9 @@ O filename atual (`title` do XML do vMix) é matched contra os arquivos da pasta
 
 ## 📦 Releases
 
-- 🟢 **v0.8.0** — "Projetar Prévia" estilo OBS: abre modo apresentador em tela cheia limpa no monitor escolhido
+- 🟢 **v1.1.0** — Suporte a input List (VideoList): playlist mista slides + vídeos, frames de vídeo via ffmpeg, exe único
+- **v1.0.0** — Primeira release pública (MIT, open-source)
+- **v0.8.0** — "Projetar Prévia" estilo OBS: abre modo apresentador em tela cheia limpa no monitor escolhido
 - **v0.7.0** — À prova de falhas silenciosas: port fallback, single-instance, health check, file watcher
 - **v0.6.0** — Tray icon nativo com menu completo + notificações
 - **v0.5.0** — Layout escalado, proporção sincronizada entre tablets, preview palestrante
@@ -191,10 +196,10 @@ python src/server.py
 # Testes (stdlib puro, sem pytest)
 python -m unittest discover tests/ -v
 
-# Build portable
+# Build do exe único (requer ffmpeg/ffprobe no PATH — embutidos no exe)
 pip install pyinstaller pystray Pillow
 scripts\build.bat
-# Saída: dist/Apresentador vMix/
+# Saída: dist/Iniciar Apresentador.exe
 ```
 
 ---

@@ -3,6 +3,28 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-05-16
+
+Suporte a input **List (VideoList)** do vMix — playlist de slides + vídeos. Itens de vídeo ganham um frame pré-gerado. Build virou exe único com ffmpeg embutido.
+
+### Added
+- **Suporte a input List (VideoList)** — playlist mista (slides PNG/JPG + vídeos MP4/MOV) lida direto do XML do vMix, sem precisar de pasta
+- **Frames de vídeo** — botão "Gerar frames dos vídeos" no `/admin` extrai (via ffmpeg) 1 frame representativo de cada vídeo pra `_thumbpresentation/` ao lado dos arquivos; duração via ffprobe
+- **Modo apresentador**: item de vídeo mostra o frame + tag vermelha "VÍDEO" + duração (`XXmXXs`) no canto; card de fallback quando o frame ainda não foi gerado
+- **Geração assíncrona** — `gerar_thumbs` roda em background com barra de progresso, não bloqueia mais a request
+- **Admin**: seletor de tipo de fonte (Photos / List); dropdown de input lista os dois tipos
+- `installer/Liberar no Defender.bat` — helper opcional pra excluir o app do Windows Defender
+
+### Changed
+- **Build é um exe único** (`--onefile`) com `index.html`, `admin.html`, ffmpeg e ffprobe **embutidos** — distribui só `Iniciar Apresentador.exe`, roda em qualquer máquina Windows sem instalar nada
+- `config.json` ganhou campo `tipo` por palestrante (`photos` default | `list`)
+- `validar_config` não bloqueia mais o save quando uma pasta configurada não existe no disco — só estrutura/GUID/duplicado bloqueiam; pasta inacessível segue sinalizada no health badge
+
+### Fixed
+- Card de vídeo era dimensionado pela viewport (`vh`) e estourava o frame em painel estreito — agora escala pelo frame (container query `cqmin`)
+- Moldura do slide via `box-shadow` no lugar de `border` — `border` + `box-sizing` desalinhava o `aspect-ratio` e deixava letterbox num slide 16:9
+- `ConnectionAbortedError` (cliente fecha a aba durante o polling) não polui mais o log
+
 ## [1.0.0] — 2026-04-20 🎉 Primeira release pública
 
 Marco simbólico: repositório **aberto ao público com licença MIT**, histórico do Git reescrito pra remover email pessoal dos 99 commits, portable empacotado e anexado como asset da release.

@@ -1,5 +1,39 @@
 # Implementations
 
+## v1.1.0 — 2026-05-16
+
+**Resumo:** Suporte a input **List (VideoList)** do vMix além de `Photos`. Um List é uma playlist mista de slides PNG/JPG + vídeos MP4/MOV; itens de vídeo viram um frame pré-gerado com tag "VÍDEO" no canto. Build virou exe único `--onefile` com ffmpeg/ffprobe embutidos. Validado ao vivo contra vMix v29.
+
+**Detecção e parsing (`src/server.py`):**
+- `_parse_list_input()` — lê `<list><item>` do XML do vMix. Item atual via atributo `selected="true"` (primário) com fallback pro `selectedIndex` do input. O `/api` live do vMix v29 **não emite** `selected` nos itens — só `selectedIndex` (1-based); confirmado inspecionando o XML vivo, o parser trata os dois.
+- `_estado_lista()` — ramo novo no `compute_state()` quando o input ativo é `VideoList`. Detecção dispara por `tipo: "list"` no config OU pelo `type` do input no XML.
+- `_kind_de()` — classifica item por extensão: `imagem` / `video` / `outro`.
+- `PALESTRANTES` virou 4-tupla `(nome, pasta_path, imagens, tipo)`; `tipo` é `photos` (default) ou `list`. List não exige pasta — a playlist vem do vMix.
+
+**Frames de vídeo (`src/server.py`):**
+- `gerar_thumb_video()` — ffmpeg extrai 1 frame representativo (filtro `thumbnail`, evita frame preto) → `<pasta-do-vídeo>/_thumbpresentation/<nome>.jpg`. Regera se o thumb for mais antigo que o vídeo.
+- `probe_duracao_ms()` / `_ensure_dur()` — ffprobe extrai a duração → sidecar `.dur` (vale pros slots ATUAL e PRÓXIMO; o vMix só expõe duração do item atual).
+- `_thumbs_worker()` + `_thumbs_jobs` (dict + lock) — geração roda em thread daemon de fundo; `POST /admin/api/gerar_thumbs` retorna na hora, `GET /admin/api/gerar_thumbs/status` faz polling do progresso. Check-and-set sob lock evita worker duplicado.
+- Endpoints novos: `GET /list-img/<guid>/<idx>`, `GET /list-thumb/<guid>/<idx>`, `POST /admin/api/gerar_thumbs`, `GET /admin/api/gerar_thumbs/status`.
+- `vmix_list_control()` — List não tem `NextPicture`; next/prev traduzem pra `SelectIndex` (1-based) lendo o índice atual. Usado pelo menu do apresentador e pelo tray.
+
+**Frontend (`src/index.html`):** item de vídeo com frame → mostra o frame + tag vermelha "VÍDEO" + tempo (`XXmXXs`) no canto; sem frame → card de fallback. `pintarSlot()` unifica imagem/vídeo/card. `.slide-frame` virou container query (`container-type: size`) — tag/card escalam pelo frame (`cqmin`), não pela viewport.
+
+**Frontend (`src/admin.html`):** dropdown de input lista Photos e List em optgroups; campo "tipo de fonte" esconde a seção de pasta quando List; botão "Gerar frames dos vídeos" com barra de progresso (polling do job); diagnóstico List-aware.
+
+**Build (`scripts/build.bat`):** PyInstaller `--onefile` embute `index.html`, `admin.html`, `icon.ico` (`--add-data`) e `ffmpeg.exe`/`ffprobe.exe` (`--add-binary`). `server.py` resolve recursos via `sys._MEIPASS` (`_BUNDLE_DIR`), fallback `recursos/` → APP_DIR → PATH. build.bat reescrito em ASCII puro (UTF-8 dessincronizava o parser do cmd) e com caminhos absolutos (`--add-data` resolve relativo ao `--specpath`).
+
+**Resiliência / fixes:**
+- `validar_config()` deixou de bloquear o save por pasta inexistente no disco — era all-or-nothing e impedia até remover um palestrante quando o config já tinha entrada com pasta morta. O estado da pasta segue visível no health badge.
+- `ThreadingServer.handle_error()` silencia `ConnectionError` (cliente fecha a aba no meio do polling de 500ms).
+- `.slide-frame` usa `box-shadow` no lugar de `border` — `border` + `box-sizing` comia o `aspect-ratio` e deixava letterbox num slide 16:9.
+
+**Docs antivírus:** `installer/LEIA-ME.txt` ganhou seção "Se o Windows bloquear"; `installer/Liberar no Defender.bat` (novo) adiciona o app às exceções do Defender.
+
+**Testes** (`tests/test_list.py`, novo): `_parse_list_input`, `_kind_de`, `_estado_lista`, `vmix_list_control`, `_thumbs_worker`, `_thumb_path`. Fixtures dos demais testes atualizadas pra 4-tupla. **Total 139 testes, todos verdes.**
+
+**Validação:** vMix v29.0.0.47 ao vivo — 2 inputs VideoList parseados, 6 frames de vídeo gerados (0 falhas), modo apresentador renderizando frame + tag. Exe único `dist\Iniciar Apresentador.exe` ~95 MB testado (HTML e ffmpeg embutidos funcionando).
+
 ## v0.8.0 — 2026-04-20
 
 **Resumo:** "Projetar Prévia" inspirado no OBS — abre o modo apresentador em tela cheia limpa num monitor específico, controlado remotamente pelo admin/tray. Pesquisa do código OBS revelou que ele usa Qt `QGuiApplication::screens()[i].geometry()` + `showFullScreen()` + `Qt::BlankCursor`, com tracking em `std::vector<OBSProjector*>` pra permitir fecho remoto. Nossa abordagem equivalente usa stdlib ctypes + subprocess Chrome/Edge em modo kiosk.
