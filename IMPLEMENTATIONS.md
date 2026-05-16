@@ -1,5 +1,31 @@
 # Implementations
 
+## v1.1.2 — 2026-05-16
+
+**Resumo:** Auditoria de robustez pré-evento — 3 revisões de código independentes (server, tray/build, frontend). Conserta um bug que impedia configurar uma instalação nova e blinda o app contra falhas durante uso ao vivo.
+
+**Bug — instalação nova travada:** `GET /admin/api/config` fazia `open(config.json)` cru; numa instalação nova o arquivo não existe (é criado no 1º save) → `FileNotFoundError` → HTTP 500. O `/admin`, ao salvar, chama esse GET dentro de `persistirConfig` → o 500 aparecia como "HTTP 500" e o operador não conseguia salvar o 1º palestrante. Fix: arquivo ausente → devolve `CFG` (config em memória) com 200.
+
+**Robustez (`server.py`):**
+- `fetch_vmix_xml` ganhou cache de 400 ms com o fetch FORA do lock — vários clientes pollando `/state` (500 ms) + tray + monitor não multiplicam conexões ao vMix; e um fetch lento (vMix offline pode levar segundos) não serializa os callers nem trava o `/state` de todos.
+- `carregar_config` rejeita JSON válido mas não-objeto → backup + config vazia; antes `CFG.get(...)` levantava `AttributeError` no import e o exe `--noconsole` morria no boot sem feedback.
+- `_handle_admin_post`: body JSON não-objeto e `Content-Length` malformado → HTTP 400 (eram 500 cru / thread pendurada).
+- `Handler.timeout = 30 s`; `salvar_ui_prefs` tolera `config.json` não-objeto; `vmix_control` `goto` em List valida o range real da playlist; guard de `sys.stdout/stderr` None (`--noconsole`); `projetor_abrir` captura `OSError` do `Popen`.
+
+**Robustez (`tray.py`):** "Reiniciar servidor" libera o mutex single-instance antes de relançar (senão a nova instância abortava e o app ficava fechado); `MonitorNotificacoes._loop` extraído pra `_iteracao` envolto em try/except (falha de tick não mata a thread de notificações); `copiar_para_clipboard` e `abrir_pasta_logs` blindados.
+
+**Robustez (frontend):** `index.html tick()` com guard de reentrância + `AbortController` 3 s. `admin.html`: `pollTick` separa fase de rede da de parse/render (erro de render não marca offline à toa); `fetchVmixXml` com timeout; `pollThumbs` para ao trocar de input/fechar o modal; `escapeHtml` no banner de preview.
+
+**Build (`build.bat`):** `--paths src` (PyInstaller analisa `tray.py` como módulo) + `--hidden-import` explícitos de `tkinter`/`PIL`.
+
+**Validação:** 139 testes verdes. Smoke test do exe no PC do evento (instalação nova, sem `config.json`): `GET /admin/api/config` → 200, endpoints respondem, `POST` payload inválido → 400, log sem erro de tray nem traceback. `/state` concorrente roda em paralelo (sem serializar), `/admin` responde ~1 ms sob carga.
+
+## v1.1.1 — 2026-05-16
+
+**Resumo:** Hotfix do ícone da bandeja no exe `--onefile`.
+
+`tray.py._icon_path()` resolvia `icon.ico` só em `recursos/`, pasta do exe e `assets/` — no exe único o ícone é embutido via `--add-data` e extraído pra `sys._MEIPASS`, que não estava na busca. Resultado: `FileNotFoundError` → `rodar_tray` crashava → `main()` caía no fallback "sem tray" → app rodava headless, sem ícone na bandeja (server e `/admin` funcionando, mas sem o ponto de entrada visual). `_icon_path` passou a incluir `sys._MEIPASS` na ordem de busca; `build.bat` passou a embutir `icon_alert.ico` além do `icon.ico`.
+
 ## v1.1.0 — 2026-05-16
 
 **Resumo:** Suporte a input **List (VideoList)** do vMix além de `Photos`. Um List é uma playlist mista de slides PNG/JPG + vídeos MP4/MOV; itens de vídeo viram um frame pré-gerado com tag "VÍDEO" no canto. Build virou exe único `--onefile` com ffmpeg/ffprobe embutidos. Validado ao vivo contra vMix v29.

@@ -3,6 +3,29 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] — 2026-05-16
+
+Correções de robustez pra produção — auditoria completa (3 revisões de código) antes de uso em evento ao vivo.
+
+### Fixed
+- **Instalação nova não conseguia salvar** — `GET /admin/api/config` dava HTTP 500 quando `config.json` ainda não existia; o `/admin` chama esse GET ao salvar o 1º palestrante, então uma instalação do zero não conseguia ser configurada. Agora devolve a config padrão (200).
+- `fetch_vmix_xml` ganhou cache curto (400 ms) e busca **fora de lock** — vários tablets + tray pollando não multiplicam conexões ao vMix, e um vMix lento não serializa nem trava o `/state` de todos os clientes.
+- `config.json` com JSON válido mas não-objeto não derruba mais o app no boot (backup automático + config vazia).
+- `POST` com body JSON não-objeto ou `Content-Length` malformado → HTTP 400 (era 500 cru / thread pendurada).
+- `Handler.timeout` de 30 s — cliente travado não pendura thread pra sempre.
+- "Reiniciar servidor" (tray) agora libera o mutex single-instance antes de relançar — antes a nova instância abortava e o app ficava fechado.
+- `index.html`: `tick()` com guard de reentrância + timeout — servidor/rede lento não empilha requisições nem congela o tablet.
+- `admin.html`: erro de render não marca mais o vMix como offline falsamente; `fetchVmixXml` com timeout de 3 s; polling de "gerar frames" para ao trocar de input/fechar o modal; banner de preview com escape de HTML.
+- Thread de notificações do tray e callbacks (clipboard, abrir logs) blindados — não derrubam mais o tray.
+
+### Changed
+- Build (`build.bat`): `--paths src` + `--hidden-import` explícitos de tkinter/PIL — empacotamento mais robusto.
+
+## [1.1.1] — 2026-05-16
+
+### Fixed
+- **Ícone da bandeja não aparecia** — no exe `--onefile` o `icon.ico` é embutido em `sys._MEIPASS`, mas `tray.py._icon_path()` só procurava em `recursos/` e na pasta do exe. Sem achar o ícone, o tray crashava (`FileNotFoundError`) e o app rodava sem ícone na bandeja. `_icon_path` agora procura também em `sys._MEIPASS`; `icon_alert.ico` passou a ser embutido no build.
+
 ## [1.1.0] — 2026-05-16
 
 Suporte a input **List (VideoList)** do vMix — playlist de slides + vídeos. Itens de vídeo ganham um frame pré-gerado. Build virou exe único com ffmpeg embutido.
