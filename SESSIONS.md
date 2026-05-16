@@ -1,5 +1,46 @@
 # Sessions
 
+## 2026-05-16 — Deploy no PC do evento + auditoria de robustez (v1.1.1 / v1.1.2)
+
+### Contexto
+Depois de empacotar o exe único, ele foi deployado no PC do evento (`vmix`, via SSH).
+O usuário rodou lá e relatou: nenhum ícone na bandeja, e HTTP 500 ao salvar palestrante.
+Pediu uma verificação completa de tudo que pode quebrar antes de usar ao vivo.
+
+### Desafios e soluções
+- **Ícone da bandeja não aparecia**: diagnóstico por SSH (o app rodava — server na 5000)
+  mostrou no log `tray falhou: icon.ico nao encontrado`. No exe `--onefile` o `icon.ico`
+  é embutido em `sys._MEIPASS`; o `_asset_path` do `server.py` já tratava isso, mas o
+  `tray.py._icon_path()` (função separada) não — só olhava `recursos/` e a pasta do exe.
+  Lição: ao mudar a resolução de recursos pro exe único, varrer TODOS os pontos que
+  carregam arquivo, não só o óbvio.
+- **HTTP 500 ao salvar numa instalação nova**: `GET /admin/api/config` fazia `open()` cru
+  do `config.json`, que não existe numa instalação nova (criado no 1º save). O `/admin`
+  chama esse GET dentro de `persistirConfig` ao salvar → 500 → impossível configurar do
+  zero. O `carregar_config` do boot já tratava arquivo ausente; o endpoint GET não.
+- **Cache de `fetch_vmix_xml` segurando o lock durante o fetch**: a 1ª versão segurava
+  `_xml_cache_lock` durante o `urlopen`. Com vMix offline (fetch ~6 s) + vários pollers,
+  tudo serializava — 5 `/state` concorrentes levavam ~30 s e o servidor travava. Corrigido:
+  fetch FORA do lock; o lock só protege leitura/escrita do cache.
+- **Caminho com acento via SSH**: a pasta do exe tem `USÁVEIS`; PowerShell por SSH→cmd
+  embaralhava o `Á`. Solução: construir o path com `[char]0xC1` (ASCII puro no comando).
+- **`Start-Process -LiteralPath`** não existe no PowerShell 5.1 (PC do evento) — usar `-FilePath`.
+
+### Decisões tomadas
+- Auditoria feita com 3 agentes de revisão em paralelo (server, tray/build, frontend).
+  Falsos-positivos descartados conferindo a realidade — ex: um agente alertou que o tkinter
+  poderia não ser empacotado, mas o log do PC do evento provou que `import tray` (que puxa
+  tkinter/pystray/PIL) funcionou; o PyInstaller analisa `tray.py` por estar no mesmo dir
+  do script. Só os bugs reais foram corrigidos (~15).
+- Smoke test do exe direto no PC do evento via SSH — o server roda headless (o tray precisa
+  de sessão interativa, mas server e endpoints não), o que permite validar tudo remoto.
+
+### Descobertas
+- PyInstaller `--onefile`: `sys.executable` = exe real, `sys._MEIPASS` = pasta temp de
+  extração; recursos embutidos (`--add-data`/`--add-binary`) ficam em `_MEIPASS`.
+- `urlopen` pra `localhost:8088` com vMix offline leva ~6 s neste ambiente (tentativa
+  IPv6 `::1` + IPv4) — por isso segurar o lock durante o fetch arruína a concorrência.
+
 ## 2026-05-16 — Suporte a input List (VideoList) do vMix + frames de vídeo (v1.1.0)
 
 ### Contexto

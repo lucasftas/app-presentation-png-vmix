@@ -142,3 +142,17 @@
 - [x] Monitor de erros do server ativo durante toda a sessão de testes
 - [x] 139 testes verdes; validação ao vivo (2 inputs List, 6 frames gerados, 0 falhas)
 - [x] Release v1.1.0 (filé) — exe único anexado como asset da release
+
+## 2026-05-16 — deploy no PC do evento + auditoria de robustez (v1.1.1 / v1.1.2)
+
+- [x] Deploy do exe no PC do evento (`vmix`, 192.168.90.3) via SSH; usuário relatou "sem ícone na bandeja"
+- [x] Diagnóstico via SSH: app rodava, mas log mostrava `tray falhou: icon.ico nao encontrado`
+- [x] **v1.1.1** — `tray.py._icon_path` passou a procurar em `sys._MEIPASS` (icon embutido no exe); `icon_alert.ico` embutido no build
+- [x] Liberada a porta 5000 no firewall do PC do evento (`netsh advfirewall`) via SSH
+- [x] Usuário reportou HTTP 500 ao salvar palestrante numa instalação nova
+- [x] Causa: `GET /admin/api/config` dava 500 sem `config.json` — corrigido (devolve config padrão)
+- [x] **Auditoria completa** — 3 revisões de código em paralelo (server.py, tray.py+build, frontend)
+- [x] **v1.1.2** — ~15 correções de robustez: cache de `fetch_vmix_xml`, blindagem de `carregar_config`/handlers/`salvar_ui_prefs`, `Handler.timeout`, `_reiniciar` libera mutex, `pollTick`/`tick` com timeout e separação de erros, `pollThumbs` com parada, build com `--paths`/`--hidden-import`
+- [x] 139 testes verdes; rebuild do exe
+- [x] Smoke test do exe no PC do evento via SSH: instalação nova, `GET /config` → 200, endpoints OK, payload inválido → 400, log limpo, `/state` concorrente em paralelo
+- [x] Releases v1.1.1 e v1.1.2 — exe único anexado como asset
