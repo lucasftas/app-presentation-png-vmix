@@ -10,15 +10,27 @@ o vMix. Funciona como o "Modo Apresentador" do PowerPoint,
 mas pegando os slides direto do que esta no vMix.
 
 
+COMO INSTALAR
+-------------
+Rode "Apresentador vMix Setup.exe" e siga o assistente.
+Instala em %LocalAppData%\Apresentador vMix (NAO pede admin)
+e cria um atalho no Menu Iniciar (e na Area de Trabalho, se
+voce marcar). Pra atualizar, e so rodar um Setup novo por cima.
+
+
 COMO USAR - 3 PASSOS
 --------------------
 
-1) Duplo-clique em:
-   "Iniciar Apresentador.exe"
+1) Abra "Apresentador vMix" pelo Menu Iniciar (ou pelo atalho
+   na Area de Trabalho).
 
-   Vai abrir:
-   - Uma janela preta com logs (deixe aberta durante o evento)
-   - Seu navegador, na tela de configuracao (Dashboard)
+   O app NAO abre janela preta — ele roda discreto, com um
+   icone na bandeja do Windows (perto do relogio). Clique no
+   icone pra ver o menu: status do vMix, palestrantes, abrir
+   o Dashboard, abrir o Modo Apresentador, etc.
+
+   No primeiro uso, clique no icone da bandeja >
+   "Abrir Dashboard (admin)" pra configurar.
 
 
 2) Na tela de configuracao, clique em "+ adicionar palestrante"
@@ -38,29 +50,37 @@ COMO USAR - 3 PASSOS
 
 3) Pro tablet do palestrante:
 
-   Na tela preta de logs ha uma linha:
-     "Palestrante:  http://192.168.X.X:5000/"
+   Clique no icone da bandeja: a linha
+     "🌐 Rede: http://192.168.X.X:5000/"
+   mostra a URL (clicar nela copia pro clipboard).
 
    Abra essa URL no navegador do tablet. O slide atual e o
    proximo aparecem automaticamente conforme o operador muda
    no vMix.
 
 
-SE O WINDOWS BLOQUEAR (1a execucao)
+SE O WINDOWS BLOQUEAR (ao instalar)
 -----------------------------------
-O app nao tem certificado digital pago, entao o Windows pode
-desconfiar dele na primeira vez. E falso-positivo - normal.
+O instalador nao tem certificado digital pago, entao o Windows
+pode desconfiar dele na primeira vez. E falso-positivo - normal.
 
 - Tela azul "O Windows protegeu o seu PC" (SmartScreen):
   clique em "Mais informacoes" e depois "Executar assim mesmo".
 
-- O Defender colocou o .exe em quarentena:
+- O Defender colocou algo em quarentena:
   Seguranca do Windows > Protecao contra virus e ameacas >
   Historico de protecao > ache o item > Permitir.
 
-- Pra evitar que o Defender atrapalhe (opcional):
-  clique-direito em "Liberar no Defender.bat" e use
-  "Executar como administrador" - adiciona o app as excecoes.
+- O instalador oferece marcar "Adicionar exclusao no Windows
+  Defender" no fim — isso ja resolve (pede confirmacao de admin).
+  Se nao marcou, da pra fazer depois: clique-direito em
+  "Liberar no Defender.bat" (na pasta instalada) >
+  "Executar como administrador".
+
+  Observacao: nesta versao o app nao extrai mais nada pra pasta
+  temporaria do Windows (%TEMP%) — ele roda direto da pasta
+  instalada (_internal\). Isso elimina o travamento que o
+  antivirus causava ao escanear a extracao a cada abertura.
 
 
 SE ALGO DER ERRADO
@@ -92,7 +112,7 @@ PNG, JPG, JPEG, BMP, GIF, WEBP
 
 RODANDO EM OUTRA MAQUINA
 ------------------------
-Copie a pasta inteira "Apresentador vMix" pra maquina nova.
+Rode "Apresentador vMix Setup.exe" na maquina nova.
 Requisitos:
   - Windows 10/11
   - Acesso a API HTTP do vMix (porta 8088) via rede
@@ -102,9 +122,10 @@ Requisitos:
 
 LOGS
 ----
-Durante o evento, os logs ficam na janela preta. Um historico
-completo e gravado em "logs\YYYY-MM-DD.log" ao lado do .exe
-(rotaciona automaticamente em 10 MB, mantendo 5 backups).
+O app roda sem janela de console. O historico completo e
+gravado em "logs\YYYY-MM-DD.log" dentro da pasta instalada
+(%LocalAppData%\Apresentador vMix), rotacionando automaticamente
+em 10 MB e mantendo 5 backups.
 
 
 ========================================================

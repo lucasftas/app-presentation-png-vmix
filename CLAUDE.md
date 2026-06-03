@@ -7,18 +7,18 @@ Instruções para assistentes de IA trabalhando neste repositório.
 Aplicação Windows que serve um modo apresentador web (estilo PowerPoint Presenter View) sincronizado com o vMix via API HTTP. Monitora o input em Program (inclusive quando o palestrante está como overlay/layer de um input composto) e exibe slide atual + próximo para o palestrante consultar no tablet/notebook da mesa.
 
 - **Plataforma alvo:** Windows 10/11 com vMix rodando na mesma rede
-- **Linguagem:** Python 3.11+ (**stdlib pura** — nenhuma dependência de runtime)
+- **Linguagem:** Python 3.11+. O **core do servidor (`server.py`) é stdlib pura**; o tray (`tray.py`) depende de **pystray + Pillow** (runtime) e usa `tkinter` (stdlib) para diálogos. Sem essas libs o app cai em modo headless (sem ícone na bandeja).
 - **Frontend:** HTML/CSS/JS vanilla (sem build step)
-- **Empacotamento:** PyInstaller `--onefile` → `apresentador.exe`
+- **Empacotamento:** PyInstaller `--onedir` → pasta `Iniciar Apresentador\` (exe + `_internal\`), distribuída via instalador Inno Setup (`Apresentador vMix Setup.exe`). **Não usar `--onefile`** — extrai ~95 MB em `%TEMP%\_MEIxxxx` a cada boot e o antivírus/temp travava o app em produção.
 - **Config:** `config.json` externo (IP do vMix + lista de palestrantes com GUID/pasta)
 
 ## Regras do projeto
 
-- **Sem dependências de runtime** — manter `requirements.txt` vazio de runtime. Dependências de build (PyInstaller) em bloco separado.
+- **Deps de runtime mínimas** — `requirements.txt` lista o runtime do tray (pystray, Pillow) e o build (pyinstaller) em blocos separados. O servidor HTTP em si não depende de libs externas.
 - **Sem framework web** — usar `http.server` + `ThreadingMixIn`. Simplicidade acima de tudo.
 - **Pastas dos palestrantes**: caminhos no `config.json` podem ser absolutos ou relativos ao diretório do `config.json` (ou do `.exe`).
 - **URLs das imagens** expostas por GUID (`/img/<guid>/<arquivo>`), não por nome de pasta — evita expor estrutura de filesystem.
-- **Polling do vMix**: 500 ms. Timeout de 3 s na chamada HTTP.
+- **Polling do vMix**: 500 ms. Timeouts: 3 s na chamada HTTP ao vMix (`fetch_vmix_xml`/`vmix_control`), 3 s nas operações de filesystem (`list_dir`/`rescan_pasta`/`_is_file_timeout`, isoladas em `_LS_EXECUTOR` contra UNC lento), 30 s no socket do handler (`Handler.timeout`).
 - **Logs**: silenciar logs do `/state` (ruído no console); manter demais.
 
 ## Padrão de commits
@@ -77,9 +77,12 @@ scripts\build.bat
 ```
 
 Flags principais:
-- `--onefile` — um único .exe portável (~8 MB)
-- `--name apresentador` — nome do executável
-- Manter console visível (sem `--noconsole`) — útil pra logs/troubleshoot durante live
+- `--onedir` — pasta `Iniciar Apresentador\` com o exe + `_internal\` (dll, ffmpeg/ffprobe, HTML, ícones), ~95 MB. **Não** `--onefile` (extração em `%TEMP%` quebrava em produção).
+- `--name "Iniciar Apresentador"` — nome do executável
+- `--noconsole` — sem janela preta; o app roda no tray e os logs vão pra `logs\YYYY-MM-DD.log` ao lado do exe (rotação 10 MB × 5).
+- `--add-binary ffmpeg/ffprobe` — embutidos pra gerar frames de vídeo do input List sem ffmpeg instalado.
+
+Empacotamento final: `installer\build-installer.bat` roda o build e compila `installer\apresentador.iss` (Inno Setup) → `dist\Apresentador vMix Setup.exe`, que instala em `%LocalAppData%\Apresentador vMix` sem admin.
 
 ## Gatilho "filé"
 

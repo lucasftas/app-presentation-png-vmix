@@ -1,8 +1,20 @@
-# Runtime:
-#   pystray — tray icon na bandeja do Windows (menu nativo)
-#   Pillow  — carregar/converter o icon.ico pro pystray
-pystray>=0.19.5
-Pillow>=10.0
+# ============================================================
+#  Dependencias do Apresentador vMix
+# ============================================================
+#
+# O core do servidor (server.py) e stdlib pura. O TRAY (tray.py) precisa das
+# libs abaixo. Pra rodar em modo dev COM o icone na bandeja:
+#     pip install -r requirements.txt
+#     python src/server.py
+# Sem instalar, o app sobe em modo headless (sem tray) — ver server.py main().
+#
+# tkinter NAO esta listado: vem junto com o CPython no Windows (usado so pra
+# dialogos de fallback). Em algumas distros Linux precisa do pacote python3-tk.
 
-# Build-only (para gerar apresentador.exe):
-#   pip install pyinstaller
+# --- Runtime (necessario pro tray icon) ---
+pystray>=0.19.5   # icone + menu nativo na bandeja do Windows
+Pillow>=10.0      # carrega/converte o icon.ico pro pystray
+
+# --- Build-only (gerar o instalador) ---
+# pip install pyinstaller
+# + Inno Setup 6 (winget install JRSoftware.InnoSetup) pra empacotar o Setup.exe

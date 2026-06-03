@@ -79,15 +79,15 @@ Este app preenche essa lacuna:
 
 ## 🚀 Quick start
 
-### 1. Baixe o portable
+### 1. Baixe e rode o instalador
 
-[**⬇️ Baixar `Iniciar Apresentador.exe` — release mais recente**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest)
+[**⬇️ Baixar `Apresentador vMix Setup.exe` — release mais recente**](https://github.com/lucasftas/app-presentation-png-vmix/releases/latest)
 
-**Exe único** (~95 MB) — app + ffmpeg embutidos. Sem instalação, sem dependências: baixe e duplo-clique.
+**Instalador** (~95 MB) — app + ffmpeg embutidos. Instala em `%LocalAppData%\Apresentador vMix` **sem pedir admin**, cria atalho no Menu Iniciar. App roda da própria pasta (`_internal\`), **sem extrair nada em `%TEMP%`** — nada de travar por antivírus/temp.
 
 Ou veja [todas as releases](https://github.com/lucasftas/app-presentation-png-vmix/releases).
 
-### 2. Duplo-clique no `Iniciar Apresentador.exe`
+### 2. Abra pelo Menu Iniciar
 
 - Ícone aparece na **bandeja do Windows** perto do relógio
 - Sem janela preta, sem poluição visual
@@ -144,10 +144,10 @@ O filename atual (`title` do XML do vMix) é matched contra os arquivos da pasta
 
 ## 🛠️ Stack
 
-- **Backend:** Python 3.11+ stdlib pura (`http.server`, `urllib`, `xml.etree`, `ctypes`, `tkinter`, `concurrent.futures`) + `pystray` + `Pillow`
+- **Backend:** servidor HTTP em **stdlib pura** (`http.server`, `urllib`, `xml.etree`, `ctypes`, `concurrent.futures`). O tray adiciona `pystray` + `Pillow` (runtime) e usa `tkinter` (stdlib) só pra diálogos — sem eles o app roda headless.
 - **Frontend:** HTML/CSS/JS vanilla (sem build step)
-- **Vídeo:** `ffmpeg` + `ffprobe` (frames e duração dos vídeos de inputs List) — embutidos no exe
-- **Distribuição:** PyInstaller `--onefile` + `--noconsole` → exe único (~95 MB, ffmpeg incluído)
+- **Vídeo:** `ffmpeg` + `ffprobe` (frames e duração dos vídeos de inputs List) — embutidos no `_internal\`
+- **Distribuição:** PyInstaller `--onedir` + `--noconsole` → pasta `_internal\` (sem extração em `%TEMP%`), empacotada num instalador **Inno Setup** (~95 MB, ffmpeg incluído) que instala em `%LocalAppData%`
 - **Plataforma:** Windows 10/11 (tray icon + `ctypes.windll`)
 
 **139 testes unittest** cobrindo config, filesystem, vMix parsing (Photos e List), match ancorado, frames de vídeo, resiliência, projetores e tray.
@@ -189,6 +189,9 @@ O filename atual (`title` do XML do vMix) é matched contra os arquivos da pasta
 git clone https://github.com/lucasftas/app-presentation-png-vmix.git
 cd app-presentation-png-vmix
 
+# Deps do tray (pra rodar com o ícone na bandeja). Sem isso, sobe headless.
+pip install -r requirements.txt
+
 # Rodar direto com Python
 cp config.example.json src/config.json
 python src/server.py
@@ -196,10 +199,11 @@ python src/server.py
 # Testes (stdlib puro, sem pytest)
 python -m unittest discover tests/ -v
 
-# Build do exe único (requer ffmpeg/ffprobe no PATH — embutidos no exe)
-pip install pyinstaller pystray Pillow
-scripts\build.bat
-# Saída: dist/Iniciar Apresentador.exe
+# Build (--onedir) + instalador. Requer ffmpeg/ffprobe no PATH (são embutidos)
+# e Inno Setup 6 (winget install JRSoftware.InnoSetup).
+pip install pyinstaller
+scripts\build.bat                 # → dist/Iniciar Apresentador/ (pasta + _internal/)
+installer\build-installer.bat     # → dist/Apresentador vMix Setup.exe
 ```
 
 ---

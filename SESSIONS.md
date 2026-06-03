@@ -1,5 +1,48 @@
 # Sessions
 
+## 2026-06-03 — Crash em /temp: migração --onedir + instalador + auditoria de 50 achados (v1.2.0)
+
+### Contexto
+O app crashou em produção com mensagem de que "não conseguiu fazer algo em /temp".
+O usuário pediu investigação profunda (não pode travar em produção), perguntou se
+o caminho era um instalador, e o que estava sendo gravado em `/temp`. Pediu também
+uma varredura ampla por outras coisas que pudessem quebrar e inconsistências.
+
+### Desafios e soluções
+- **Causa-raiz do "/temp"**: o build `--onefile` do PyInstaller extrai TODO o bundle
+  (runtime Python + `ffmpeg.exe` + `ffprobe.exe` ≈ 90 dos 95 MB + HTML + ícones) pra
+  `%TEMP%\_MEIxxxx` a CADA boot e apaga ao sair. Antivírus escaneando/quarentenando
+  esses 90 MB, `%TEMP%` sem permissão (perfil itinerante/política), disco cheio ou
+  `_MEIxxxx` órfão → o bootloader falha com erro de temp. **Fix: `--onedir`** — carrega
+  de `_internal\` ao lado do exe, **zero extração em `%TEMP%`**. Empacotado num instalador
+  Inno Setup que instala em `%LocalAppData%` (sem admin → pasta gravável pro config/logs).
+- **Provar o fix**: smoke do exe com snapshot de `_MEI*` no `%TEMP%` antes/depois — delta 0.
+- **Probe HTTP "falhando" no smoke**: `Invoke-WebRequest http://localhost:5000` resolvia
+  `localhost` → `::1` (IPv6), mas o server binda IPv4 (`("", porta)`) — sem resposta.
+  Além disso `/state` espera o timeout de 3 s do vMix (ausente na máquina de build), que
+  estourava o timeout de 2 s do cliente. Resolvido usando `127.0.0.1` + timeout 10 s, e
+  validando primeiro `GET /` (serve `index.html` de `_internal\`, sem tocar vMix).
+- **Auditoria adversarial**: workflow multi-agente em 8 dimensões (concorrência, parsing
+  XML, filesystem/path, config/boot, HTTP, tray/projetor, docs↔código, deps) — 82 achados,
+  cada um verificado por um agente tentando REFUTAR; 50 confirmados, priorizados por severidade.
+- **`_cfg_lock` → RLock**: ao introduzir helpers que leem estado global sob lock
+  (`_palestrante_info`/`_vmix_target`), um `Lock` simples arriscaria auto-deadlock se algum
+  caminho já o detivesse; `RLock` (reentrante) elimina o risco.
+- **Teste do limite de Content-Length**: simulado com socket cru enviando só os headers
+  (`Content-Length` gigante, sem corpo) contra um `ThreadingServer` real → 413 antes do `read()`.
+- **"Tags v1.1.x faltando" (achado da auditoria)**: era falso-positivo — `git tag` local só
+  ia até v1.0.0, mas as releases v1.1.1–v1.1.4 existem no GitHub. `git fetch --tags` reconciliou.
+
+### Decisões tomadas
+- **Escopo "Tudo"** (escolha do usuário): corrigir os 50 achados nesta entrega, não só a
+  migração — alinhado com "não pode travar em produção".
+- **`%LocalAppData%` (não `%ProgramFiles%`)**: instalação per-usuário sem UAC mantém a pasta
+  gravável, então `config.json`/`logs\` continuam ao lado do exe sem mudar o código (`APP_DIR`).
+- **`/admin` só no PC operador (confiável)**: o path traversal em `/admin/api/ls` foi mantido
+  como baixa prioridade (decisão do usuário), sem whitelist de raiz.
+- **Exclusão do Defender vira opcional/nice-to-have**: com `--onedir` o antivírus escaneia 1×
+  no install em vez de a cada boot, então a exclusão deixou de ser crítica.
+
 ## 2026-05-16 — Deploy no PC do evento + auditoria de robustez (v1.1.1 / v1.1.2)
 
 ### Contexto

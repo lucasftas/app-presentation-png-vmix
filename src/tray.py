@@ -29,8 +29,8 @@ from PIL import Image
 def _icon_path(alerta: bool = False) -> Path:
     """Procura icon.ico (ou icon_alert.ico).
 
-    Ordem: embutido no exe (`sys._MEIPASS`, build `--onefile`) → `recursos/`
-    (portable antigo) → pasta do exe → `assets/` (dev mode).
+    Ordem: embutido no exe (`sys._MEIPASS`) → `_internal/` (build `--onedir`)
+    → `recursos/` (portable antigo) → pasta do exe → `assets/` (dev mode).
     """
     nome = "icon_alert.ico" if alerta else "icon.ico"
     app_dir = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
@@ -38,7 +38,8 @@ def _icon_path(alerta: bool = False) -> Path:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         candidatos.append(Path(meipass) / nome)
-    candidatos += [app_dir / "recursos" / nome,
+    candidatos += [app_dir / "_internal" / nome,
+                   app_dir / "recursos" / nome,
                    app_dir / nome,
                    app_dir.parent / "assets" / nome]
     for cand in candidatos:
@@ -59,7 +60,7 @@ def carregar_icone(alerta: bool = False) -> Image.Image:
 
 def posicao_do_palestrante(guid: str, server_module) -> str:
     """Retorna 'X / Y' do palestrante se estiver ativo, ou '— / Y'."""
-    info = server_module.PALESTRANTES.get((guid or "").lower())
+    info = server_module._palestrante_info(guid)  # leitura sob _cfg_lock
     total = len(info[2]) if info else 0
     state = server_module.compute_state()
     if state.get("ok") and state.get("ativo") and state.get("guid") == guid:
@@ -82,19 +83,54 @@ def url_lan(server_module) -> str:
 # -------------------- Clipboard (Windows) --------------------
 
 def copiar_para_clipboard(texto: str) -> bool:
-    """Copia texto pro clipboard via tkinter (stdlib). Retorna True se deu certo.
+    """Copia texto pro clipboard. Retorna True se deu certo.
 
-    Roda dentro de um callback do pystray (thread do icone, nao a main) — se o
-    Tcl falhar nessa thread, NAO deve propagar e derrubar o menu do tray.
+    Roda dentro de um callback do pystray (thread do icone, NAO a main thread).
+    tkinter nao e thread-safe fora da main thread — `Tk().mainloop()` ali podia
+    travar/congelar o menu. Usa a API Win32 nativa (sem mainloop) no Windows e
+    so cai pra tkinter (sem mainloop) como fallback. Nunca propaga excecao.
     """
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            CF_UNICODETEXT = 13
+            GMEM_MOVEABLE = 0x0002
+            k32 = ctypes.windll.kernel32
+            u32 = ctypes.windll.user32
+            k32.GlobalAlloc.restype = wintypes.HGLOBAL
+            k32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+            k32.GlobalLock.restype = wintypes.LPVOID
+            k32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+            src = ctypes.create_unicode_buffer(texto)  # inclui terminador nulo
+            size = ctypes.sizeof(src)
+            h = k32.GlobalAlloc(GMEM_MOVEABLE, size)
+            if not h:
+                raise OSError("GlobalAlloc falhou")
+            ptr = k32.GlobalLock(h)
+            ctypes.memmove(ptr, src, size)
+            k32.GlobalUnlock(h)
+            if not u32.OpenClipboard(None):
+                k32.GlobalFree(h)
+                raise OSError("OpenClipboard falhou")
+            try:
+                u32.EmptyClipboard()
+                if not u32.SetClipboardData(CF_UNICODETEXT, h):
+                    k32.GlobalFree(h)
+                    raise OSError("SetClipboardData falhou")
+                # Sucesso: o sistema assume a posse do handle h.
+            finally:
+                u32.CloseClipboard()
+            return True
+        except Exception:
+            pass  # cai pro fallback tkinter
     try:
         root = tk.Tk()
         root.withdraw()
         root.clipboard_clear()
         root.clipboard_append(texto)
-        root.update()
-        root.after(200, root.destroy)
-        root.mainloop()
+        root.update()  # sem mainloop() — evita travar a thread do pystray
+        root.destroy()
         return True
     except Exception:
         return False
@@ -247,6 +283,14 @@ def _editar_vmix_host(server_module):
 def _liberar_firewall(server_module):
     def _cb(icon=None, item=None):
         ok, msg = liberar_firewall(server_module.SERVER_PORT)
+        # Loga o resultado (a notify pode falhar silenciosamente — sem o log
+        # nao havia rastro de UAC cancelado / erro de firewall).
+        try:
+            logger = getattr(server_module, "logger", None)
+            if logger:
+                (logger.info if ok else logger.warning)("liberar_firewall: %s", msg)
+        except Exception:
+            pass
         try:
             icon.notify(msg, "Apresentador vMix")
         except Exception:
@@ -300,7 +344,7 @@ def _slide_action(server_module, guid: str, acao: str):
     delega pra vmix_list_control (traduz tudo pra SelectIndex).
     """
     def _cb(icon=None, item=None):
-        info = server_module.PALESTRANTES.get((guid or "").lower())
+        info = server_module._palestrante_info(guid)  # leitura sob _cfg_lock
         tipo = info[3] if info else "photos"
         if tipo == "list":
             server_module.vmix_list_control(guid, acao)
@@ -629,4 +673,9 @@ def rodar_tray(server_module, shutdown_fn: Callable | None = None) -> None:
         ic.visible = True
         monitor.start()
 
-    icon.run(setup=_on_setup)
+    try:
+        icon.run(setup=_on_setup)
+    finally:
+        # icon.run() retorna quando o usuario fecha o tray — para a thread de
+        # notificacoes em vez de deixa-la rodando (daemon, mas cleanup explicito).
+        monitor.stop()

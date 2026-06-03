@@ -1,5 +1,21 @@
 # Operations Log
 
+## 2026-06-03 — investigação do crash em /temp + migração --onedir + auditoria (v1.2.0)
+
+- [x] Investigação profunda do crash relatado ("não conseguiu fazer algo em /temp") — causa-raiz: `--onefile` extraindo ~95 MB pra `%TEMP%\_MEIxxxx` a cada boot
+- [x] Auditoria adversarial multi-agente (8 dimensões, 82 achados → 50 confirmados por refutação)
+- [x] Migração `--onefile` → `--onedir` (`scripts\build.bat`) + fallback `_internal\` em `server.py`/`tray.py`
+- [x] Instalador Inno Setup (`installer\apresentador.iss` + `build-installer.bat`) → `%LocalAppData%`, sem admin
+- [x] Chrome kiosk usa `tempfile.gettempdir()` com fallback `APP_DIR\_kiosk_cache`
+- [x] Blindagem anti-crash/DoS: timeout UNC, `_safe_int` no boot, `Content-Length` 413, `ParseError`, `resolve` OSError, `Popen`, `_thumbs_worker` finally, `gc()` projetor
+- [x] Races de estado global resolvidas com snapshots sob `_cfg_lock` (RLock)
+- [x] Robustez HTTP (BrokenPipe, info disclosure) + tray (clipboard Win32, shutdown, log firewall)
+- [x] Docs corrigidos (CLAUDE.md/README/requirements: stdlib pura, build, timeouts)
+- [x] 16 testes de regressão novos (`tests\test_robustez_v1_2.py`); suíte 155 verdes
+- [x] Build `--onedir` validado + smoke do exe (zero `_MEI` em `%TEMP%`); instalador compilado (~70 MB)
+- [x] Tags locais reconciliadas com o remote (`git fetch --tags`) — v1.1.1–v1.1.4 já existiam como releases no GitHub; o "tag faltando" era artefato de fetch local
+- [x] Release v1.2.0
+
 ## 2026-04-17
 
 - [x] Captura inicial da ideia (gatilho "bora") — entrevista + README.md alpha

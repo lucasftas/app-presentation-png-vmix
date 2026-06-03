@@ -3,6 +3,32 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-06-03
+
+Migração de empacotamento que mata o crash em `%TEMP%`, mais blindagem anti-crash/DoS de uma auditoria multi-agente (82 achados → 50 confirmados adversarialmente).
+
+### Changed
+- **Empacotamento: `--onefile` → `--onedir` + instalador Inno Setup.** O `--onefile` extraía ~95 MB (runtime Python + ffmpeg/ffprobe) pra `%TEMP%\_MEIxxxx` **a cada boot** — antivírus, `%TEMP%` sem permissão ou disco cheio travavam o app em produção (era a causa do crash "não conseguiu fazer algo em /temp"). Agora `--onedir` carrega de `_internal\` ao lado do exe (**zero extração em `%TEMP%`**), e `installer\apresentador.iss` empacota num `Apresentador vMix Setup.exe` que instala em `%LocalAppData%\Apresentador vMix` **sem admin**.
+- Chrome kiosk (projetor) usa `tempfile.gettempdir()` com fallback pra `APP_DIR\_kiosk_cache` (antes `os.environ["TEMP"]` com fallback `"."`, que quebrava se o CWD fosse read-only).
+- `_cfg_lock` virou `RLock`; leituras de estado global (`PALESTRANTES`/`CFG`/`VMIX_HOST/PORT`) passam por snapshots sob lock (`_palestrantes_snapshot`/`_palestrante_info`/`_vmix_target`).
+
+### Fixed
+- **Travamento por share UNC (DoS):** `rescan_pasta` e os endpoints `/list-img`/`/list-thumb` faziam `is_dir`/`iterdir`/`is_file` síncronos — share de rede offline pendurava a thread HTTP pra sempre. Agora protegidos por timeout via `_LS_EXECUTOR` (`_is_file_timeout`).
+- **Crash no boot:** `int(port)` com valor inválido no `config.json` (`"port": "abc"`) matava o exe `--noconsole` sem feedback. `_safe_int` neutraliza (boot, `salvar_config`, `ConfigWatcher`).
+- **OOM:** `POST /admin/api/*` com `Content-Length` gigante alocava tudo em RAM → agora rejeita com HTTP 413 antes do `read()` (`MAX_BODY_BYTES` = 10 MB).
+- **`ET.ParseError` cru:** vMix devolvendo HTML 404 no lugar de XML virava exceção não tratada; `fetch_vmix_xml` faz sniff de conteúdo + converte em `ValueError` (callers já tratam como offline).
+- `(pasta/arq).resolve()` em `/img` agora captura `OSError`/`RuntimeError` (symlink loop, permissão), não só `ValueError`.
+- `ProjetorManager.abrir` captura `OSError` do `Popen` → `RuntimeError` limpo; `gc()` roda ao abrir/fechar projetor (vazamento de PIDs mortos).
+- `_thumbs_worker` ganhou `finally` que garante status terminal — job não fica "rodando" eterno se a thread morrer.
+- `wfile.write` em `_send_json` e `/admin/api/vmix_xml` blindado contra `BrokenPipeError`/`ConnectionResetError`.
+- Erro de JSON inválido no POST não vaza mais o detalhe da exceção (information disclosure).
+- `copiar_para_clipboard` (tray) usa API Win32 nativa em vez de `Tk().mainloop()` (não-thread-safe na thread do pystray, podia congelar o menu).
+- `MonitorNotificacoes` é parado no shutdown do tray (`try/finally` em `icon.run()`); resultado do firewall é logado.
+- `_CLIENTES` ganha poda defensiva de tamanho (anti-crescimento ilimitado sob spam de IPs).
+
+### Docs
+- `CLAUDE.md`/`README.md`/`requirements.txt`: corrigida a alegação "stdlib pura" (o tray depende de pystray + Pillow), o tamanho/flag do build (`--onefile ~8 MB` → `--onedir ~95 MB`), "console visível" → `--noconsole`, e os timeouts especificados.
+
 ## [1.1.2] — 2026-05-16
 
 Correções de robustez pra produção — auditoria completa (3 revisões de código) antes de uso em evento ao vivo.

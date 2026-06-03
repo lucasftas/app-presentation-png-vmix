@@ -26,6 +26,7 @@ import socketserver
 import string
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -45,6 +46,11 @@ for _stream in ("stdout", "stderr"):
             pass
 
 # -------------------- Constantes globais --------------------
+
+# Limite do corpo de um POST do /admin. Sem isso, um cliente que declara
+# Content-Length gigante (ex: 2 GB) faria rfile.read() alocar tudo em RAM e
+# derrubar o processo (OOM). 10 MB cobre qualquer config.json com folga.
+MAX_BODY_BYTES = 10 * 1024 * 1024
 
 # Formatos de imagem aceitos pelo vMix (Photos/ImageList).
 # Fonte: dialogo de arquivos do vMix — "*.JPG;*.BMP;*.PNG;*.GIF;*.JPEG;*.WEBP".
@@ -137,15 +143,20 @@ def bundle_dir() -> Path:
 APP_DIR = app_dir()
 _BUNDLE_DIR = bundle_dir()
 _RECURSOS_DIR = APP_DIR / "recursos"
+# PyInstaller --onedir coloca os recursos embutidos (--add-data/--add-binary)
+# numa subpasta `_internal/` ao lado do exe. Em --onedir o sys._MEIPASS ja
+# aponta pra la (entao _BUNDLE_DIR ja cobre), mas incluimos o caminho explicito
+# como fallback defensivo — o app acha os assets mesmo se _MEIPASS nao vier.
+_INTERNAL_DIR = APP_DIR / "_internal"
 
 
 def _asset_path(name: str) -> Path:
     """Localiza um asset (index.html, admin.html, icon.ico).
 
-    Ordem: embutido no exe (_MEIPASS) → pasta recursos/ (portable antigo)
-    → APP_DIR (dev mode).
+    Ordem: embutido no exe (_MEIPASS) → _internal/ (--onedir) → recursos/
+    (portable antigo) → APP_DIR (dev mode).
     """
-    for base in (_BUNDLE_DIR, _RECURSOS_DIR, APP_DIR):
+    for base in (_BUNDLE_DIR, _INTERNAL_DIR, _RECURSOS_DIR, APP_DIR):
         cand = base / name
         if cand.is_file():
             return cand
@@ -189,7 +200,10 @@ def setup_logging(verbose: bool = True) -> None:
     except OSError as e:
         print(f"[aviso] nao foi possivel criar log em arquivo: {e}", file=sys.stderr)
 
-_cfg_lock = threading.Lock()
+# RLock (reentrante): os helpers _palestrante_info()/_vmix_target() adquirem
+# este lock pra ler estado global; como sao chamados de varios pontos, um RLock
+# evita auto-deadlock caso algum caminho ja o detenha.
+_cfg_lock = threading.RLock()
 _clientes_lock = threading.Lock()
 # IP → timestamp Unix do ultimo GET /state; registra quem esta assistindo
 _CLIENTES: dict[str, float] = {}
@@ -200,6 +214,13 @@ def registrar_cliente(ip: str) -> None:
         return
     with _clientes_lock:
         _CLIENTES[ip] = time.time()
+        # Poda defensiva: sob spam de IPs distintos (DHCP dinamico, proxy) o
+        # GC lazy de clientes_ativos() so roda quando o /admin consulta. Sem
+        # isso o dict cresceria ilimitado entre consultas.
+        if len(_CLIENTES) > 2000:
+            corte = time.time() - 300
+            for k in [k for k, ts in _CLIENTES.items() if ts < corte]:
+                _CLIENTES.pop(k, None)
 
 
 def clientes_ativos(janela_s: int = 30) -> list[dict]:
@@ -358,11 +379,45 @@ def carregar_palestrantes(cfg: dict, timeout_por_pasta: float = 5.0) -> dict:
     return out
 
 
+def _safe_int(valor, default: int) -> int:
+    """int() tolerante: "8088"/8088 → 8088; vazio/None/lixo → default.
+
+    Critico no boot: VMIX_PORT/SERVER_PORT vem do config.json no import do
+    modulo. Um int("abc") ali levantaria ValueError e mataria o exe --noconsole
+    sem nenhum feedback ao operador. Aqui qualquer valor invalido vira o default.
+    """
+    try:
+        return int(str(valor).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 CFG = carregar_config()
 VMIX_HOST = CFG.get("vmix", {}).get("host", "localhost")
-VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
-SERVER_PORT = int(CFG.get("server_port", 5000))
+VMIX_PORT = _safe_int(CFG.get("vmix", {}).get("port", 8088), 8088)
+SERVER_PORT = _safe_int(CFG.get("server_port", 5000), 5000)
 PALESTRANTES = carregar_palestrantes(CFG)
+
+
+def _vmix_target() -> tuple[str, int]:
+    """(host, port) do vMix lidos sob lock — evita ler host novo + porta velha
+    (ou vice-versa) durante um reload de config concorrente."""
+    with _cfg_lock:
+        return VMIX_HOST, VMIX_PORT
+
+
+def _palestrantes_snapshot() -> dict:
+    """Copia rasa de PALESTRANTES sob lock — leitura consistente mesmo se o
+    ConfigWatcher/salvar_config reescrever o dict global no meio."""
+    with _cfg_lock:
+        return dict(PALESTRANTES)
+
+
+def _palestrante_info(guid: str):
+    """PALESTRANTES.get(guid) sob lock. Retorna a tupla (nome, pasta, slides,
+    tipo) ou None."""
+    with _cfg_lock:
+        return PALESTRANTES.get((guid or "").lower())
 
 
 def validar_config(new_cfg: dict) -> list[str]:
@@ -432,7 +487,9 @@ UI_PREFS_DEFAULTS = {"split_ratio": 38}
 
 def get_ui_prefs() -> dict:
     """Retorna ui_prefs do CFG com defaults preenchidos."""
-    cur = CFG.get("ui_prefs") if isinstance(CFG.get("ui_prefs"), dict) else {}
+    with _cfg_lock:
+        cur = CFG.get("ui_prefs")
+        cur = dict(cur) if isinstance(cur, dict) else {}
     out = dict(UI_PREFS_DEFAULTS)
     for k in UI_PREFS_DEFAULTS:
         if k in cur:
@@ -480,32 +537,49 @@ def salvar_ui_prefs(novo: dict) -> None:
         _config_watcher.marcar_escrita_nossa()
 
 
+def _is_file_timeout(path: Path, timeout: float = 3.0) -> bool:
+    """path.is_file() protegido por timeout — paths de itens de List vem do XML
+    do vMix e podem ser UNC (\\\\servidor\\share\\...). Um share offline travaria
+    a thread HTTP indefinidamente; aqui falha rapido."""
+    try:
+        return _LS_EXECUTOR.submit(path.is_file).result(timeout=timeout)
+    except Exception:
+        return False
+
+
 def rescan_pasta(guid: str) -> list[str]:
     """Re-le o filesystem da pasta de um palestrante e atualiza PALESTRANTES.
 
     Retorna a nova lista de arquivos de imagem (ordenacao natural), ou [] se
-    o GUID nao esta em PALESTRANTES ou a pasta nao existe mais.
+    o GUID nao esta em PALESTRANTES ou a pasta nao existe mais. Protegido por
+    timeout: pasta em UNC caido nao trava a thread HTTP que chamou.
     """
     global PALESTRANTES
     g = (guid or "").lower().strip()
-    info = PALESTRANTES.get(g)
+    info = _palestrante_info(g)
     if info is None:
         return []
     nome, pasta_path, _, tipo = info
     # List nao tem pasta — playlist vem do vMix em runtime, nada pra rescanear.
     if tipo == "list" or pasta_path is None:
         return []
-    if not pasta_path.is_dir():
+    # is_dir() e iterdir() podem travar em UNC lento/offline — isola com timeout
+    # (mesma protecao de carregar_palestrantes, que rescan_pasta nao tinha).
+    try:
+        eh_dir = _LS_EXECUTOR.submit(pasta_path.is_dir).result(timeout=3.0)
+    except Exception:
+        return []
+    if not eh_dir:
         return []
     try:
-        imagens = sorted(
-            (x.name for x in pasta_path.iterdir() if x.is_file() and _is_image(x)),
-            key=_natural_key,
-        )
-    except (PermissionError, OSError):
+        imagens = _LS_EXECUTOR.submit(_listar_imagens_em, pasta_path).result(timeout=3.0)
+    except Exception:
         return []
     with _cfg_lock:
-        PALESTRANTES[g] = (nome, pasta_path, imagens, tipo)
+        # Double-check: o palestrante pode ter sido removido da config durante o
+        # IO acima — sem isto, re-adicionariamos uma entrada deliberadamente tirada.
+        if g in PALESTRANTES:
+            PALESTRANTES[g] = (nome, pasta_path, imagens, tipo)
     return imagens
 
 
@@ -530,7 +604,7 @@ def salvar_config(new_cfg: dict) -> None:
         tmp.replace(CONFIG_PATH)
         CFG = new_cfg
         VMIX_HOST = CFG.get("vmix", {}).get("host", "localhost")
-        VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
+        VMIX_PORT = _safe_int(CFG.get("vmix", {}).get("port", 8088), 8088)
         PALESTRANTES = carregar_palestrantes(CFG)
     if _config_watcher:
         _config_watcher.marcar_escrita_nossa()
@@ -734,10 +808,19 @@ def fetch_vmix_xml(max_age: float = 0.4) -> ET.Element:
         c = _xml_cache
         if c["root"] is not None and time.time() - c["ts"] <= max_age:
             return c["root"]
-    url = f"http://{VMIX_HOST}:{VMIX_PORT}/api"
+    host, port = _vmix_target()
+    url = f"http://{host}:{port}/api"
     with urllib.request.urlopen(url, timeout=3) as resp:
         data = resp.read()
-    root = ET.fromstring(data)
+    # vMix vivo responde XML. Se vier HTML (pagina de erro 404), corpo vazio ou
+    # qualquer coisa que nao comece com '<', ET.fromstring levantaria ParseError
+    # cru — convertemos numa excecao clara que os callers ja tratam como offline.
+    if data.lstrip()[:1] != b"<":
+        raise ValueError("vMix retornou conteudo nao-XML (resposta da API invalida)")
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as e:
+        raise ValueError(f"XML do vMix invalido: {e}") from e
     with _xml_cache_lock:
         _xml_cache["root"] = root
         _xml_cache["ts"] = time.time()
@@ -755,7 +838,8 @@ def vmix_control(funcao: str, guid: str, value: str | None = None) -> dict:
     params = {"Function": funcao, "Input": guid}
     if value is not None:
         params["Value"] = str(value)
-    url = f"http://{VMIX_HOST}:{VMIX_PORT}/api/?" + urllib.parse.urlencode(params)
+    host, port = _vmix_target()
+    url = f"http://{host}:{port}/api/?" + urllib.parse.urlencode(params)
     try:
         with urllib.request.urlopen(url, timeout=3) as resp:
             return {"ok": True, "status": resp.status}
@@ -796,7 +880,7 @@ def _achar_ffmpeg_bin(nome: str) -> str | None:
     APP_DIR) → PATH do sistema. Assim o exe unico funciona em qualquer
     maquina sem ffmpeg instalado.
     """
-    for base in (_BUNDLE_DIR, _RECURSOS_DIR, APP_DIR):
+    for base in (_BUNDLE_DIR, _INTERNAL_DIR, _RECURSOS_DIR, APP_DIR):
         cand = base / f"{nome}.exe"
         if cand.is_file():
             return str(cand)
@@ -968,6 +1052,16 @@ def _thumbs_worker(guid: str) -> None:
     except Exception as e:
         logger.exception("gerar_thumbs worker falhou: %s", guid)
         _set(status="erro", erro=str(e), concluido_em=time.time())
+    finally:
+        # Garante status terminal mesmo se a thread morrer por BaseException
+        # (SystemExit/KeyboardInterrupt) — senao o job ficaria "rodando" eterno
+        # e o /admin pollaria pra sempre sem nunca ver fim.
+        with _thumbs_jobs_lock:
+            j = _thumbs_jobs.get(guid)
+            if j is not None and j.get("status") == "rodando":
+                j["status"] = "erro"
+                j["erro"] = j.get("erro") or "worker interrompido"
+                j["concluido_em"] = time.time()
 
 
 def _input_by_num(root: ET.Element, num: str | None) -> ET.Element | None:
@@ -1060,7 +1154,8 @@ def _parse_list_input(inp: ET.Element | None) -> tuple[list[dict], int | None]:
     return itens, atual
 
 
-def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> tuple[str, int] | None:
+def _preview_palestrante(root: ET.Element, ativo_guid: str | None,
+                         palestrantes: dict) -> tuple[str, int] | None:
     """Se o input em Preview do vMix for um palestrante configurado diferente
     do que esta no Program, retorna (nome, total_de_slides). Caso contrario, None.
     """
@@ -1068,13 +1163,13 @@ def _preview_palestrante(root: ET.Element, ativo_guid: str | None) -> tuple[str,
     if not preview_num:
         return None
     preview_inp = _input_by_num(root, preview_num)
-    achado = _find_palestrante_em(root, preview_inp, PALESTRANTES)
+    achado = _find_palestrante_em(root, preview_inp, palestrantes)
     if achado is None:
         return None
     guid_prev, inp_prev = achado
     if ativo_guid and guid_prev == ativo_guid:
         return None
-    nome, _pasta, imagens, tipo = PALESTRANTES[guid_prev]
+    nome, _pasta, imagens, tipo = palestrantes[guid_prev]
     if tipo == "list":
         # List le a playlist do XML — conta os itens do proprio input.
         itens, _ = _parse_list_input(inp_prev)
@@ -1159,17 +1254,21 @@ def _estado_lista(base: dict, guid: str, nome: str, inp: ET.Element) -> dict:
 def compute_state() -> dict:
     prefs = get_ui_prefs()
     base = {"ui_prefs": prefs}
+    # Snapshot unico de PALESTRANTES sob lock: todas as buscas/acessos abaixo
+    # usam a mesma versao, mesmo se o ConfigWatcher recarregar a config no meio.
+    pals = _palestrantes_snapshot()
+    host, port = _vmix_target()
     try:
         root = fetch_vmix_xml()
     except Exception as e:
         return {**base, "ok": False,
-                "erro": f"vMix inacessivel ({VMIX_HOST}:{VMIX_PORT}): {e}"}
+                "erro": f"vMix inacessivel ({host}:{port}): {e}"}
 
     active_num = root.findtext("active")
     input_program = _input_by_num(root, active_num)
 
     def _prev_fields(ativo_guid):
-        r = _preview_palestrante(root, ativo_guid)
+        r = _preview_palestrante(root, ativo_guid, pals)
         if r is None:
             return {"preview_palestrante": None, "preview_total": None}
         return {"preview_palestrante": r[0], "preview_total": r[1]}
@@ -1179,7 +1278,7 @@ def compute_state() -> dict:
                 "mensagem": "Sem input em Program",
                 **_prev_fields(None)}
 
-    achado = _find_palestrante_em(root, input_program, PALESTRANTES)
+    achado = _find_palestrante_em(root, input_program, pals)
 
     if achado is None:
         for ov in root.findall("overlays/overlay"):
@@ -1187,7 +1286,7 @@ def compute_state() -> dict:
             if not inp_num:
                 continue
             ov_inp = _input_by_num(root, inp_num)
-            achado = _find_palestrante_em(root, ov_inp, PALESTRANTES)
+            achado = _find_palestrante_em(root, ov_inp, pals)
             if achado is not None:
                 break
 
@@ -1199,7 +1298,7 @@ def compute_state() -> dict:
                 **_prev_fields(None)}
 
     guid, input_palestrante = achado
-    nome, pasta_path, slides, tipo = PALESTRANTES[guid]
+    nome, pasta_path, slides, tipo = pals[guid]
 
     # Input List (VideoList): playlist vem do XML, nao de pasta. Detecta pelo
     # tipo configurado ou pelo `type` do proprio input no vMix.
@@ -1404,7 +1503,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Cliente (tablet/tray) fechou no meio do polling — ruido normal.
+            pass
 
     def _send_file(self, path: Path, content_type: str | None = None, cache: bool = True) -> None:
         """Serve arquivo em streaming (64KB chunks) — nao carrega tudo em RAM.
@@ -1467,7 +1570,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             guid, arq = parts[0].lower(), parts[1]
-            info = PALESTRANTES.get(guid)
+            info = _palestrante_info(guid)
             if info is None:
                 self.send_error(404)
                 return
@@ -1476,16 +1579,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # palestrante tipo List nao tem pasta — usa /list-img/
                 self.send_error(404)
                 return
-            candidate = (pasta_path / arq).resolve()
+            # resolve() pode levantar OSError (permissao) ou RuntimeError
+            # (symlink loop) alem do ValueError de relative_to — todos viram
+            # erro tratado, nunca derrubam a thread.
             try:
+                candidate = (pasta_path / arq).resolve()
                 candidate.relative_to(pasta_path.resolve())
             except ValueError:
                 self.send_error(403)
                 return
+            except (OSError, RuntimeError):
+                self.send_error(500)
+                return
             # Fase 2: se arquivo sumiu depois do load, re-escaneia antes de 404
-            if not candidate.is_file():
+            if not _is_file_timeout(candidate):
                 rescan_pasta(guid)
-                if not candidate.is_file():
+                if not _is_file_timeout(candidate):
                     self._send_json({
                         "error": "arquivo_removido",
                         "detalhe": f"'{arq}' nao existe mais na pasta do palestrante",
@@ -1504,7 +1613,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             guid = parts[0].lower()
-            info = PALESTRANTES.get(guid)
+            info = _palestrante_info(guid)
             if info is None or info[3] != "list":
                 self.send_error(404)
                 return
@@ -1527,7 +1636,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)  # item de video nao tem imagem
                 return
             candidate = Path(item["path"])
-            if not candidate.is_file():
+            # path vem do XML do vMix e pode ser UNC — is_file com timeout pra
+            # nao travar a thread se o share estiver offline.
+            if not _is_file_timeout(candidate):
                 self.send_error(404)
                 return
             # cache=False: arquivo local (mesma maquina do vMix), rapido, e
@@ -1545,7 +1656,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             guid = parts[0].lower()
-            info = PALESTRANTES.get(guid)
+            info = _palestrante_info(guid)
             if info is None or info[3] != "list":
                 self.send_error(404)
                 return
@@ -1568,7 +1679,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             thumb = _thumb_path(Path(item["path"]))
-            if not thumb.is_file():
+            # thumb fica ao lado do video (pode ser UNC) — is_file com timeout.
+            if not _is_file_timeout(thumb):
                 self.send_error(404)  # frame ainda nao gerado
                 return
             self._send_file(thumb, "image/jpeg", cache=False)
@@ -1678,7 +1790,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Proxy do XML bruto do vMix — fallback pro admin quando CORS
             # direto nao funciona (vMix em outra maquina, rede restrita etc).
             try:
-                url = f"http://{VMIX_HOST}:{VMIX_PORT}/api"
+                host, port = _vmix_target()
+                url = f"http://{host}:{port}/api"
                 with urllib.request.urlopen(url, timeout=3) as resp:
                     data = resp.read()
             except Exception as e:
@@ -1689,7 +1802,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
 
         if sub == "preview":
@@ -1753,11 +1869,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             self._send_json({"ok": False, "error": "Content-Length invalido"}, status=400)
             return
-        raw = self.rfile.read(length) if length > 0 else b""
+        # Sem limite, um Content-Length gigante faria rfile.read() alocar tudo
+        # em RAM e derrubar o processo (OOM). Rejeita antes de ler.
+        if length > MAX_BODY_BYTES:
+            self._send_json({"ok": False, "error": "payload muito grande"}, status=413)
+            return
+        try:
+            raw = self.rfile.read(length) if length > 0 else b""
+        except (OSError, MemoryError):
+            self._send_json({"ok": False, "error": "falha lendo corpo da requisicao"},
+                            status=400)
+            return
         try:
             payload = json.loads(raw.decode("utf-8")) if raw else None
-        except Exception as e:
-            self._send_json({"ok": False, "error": f"JSON invalido: {e}"}, status=400)
+        except Exception:
+            # Sem interpolar a excecao: a mensagem do json.loads revela offset/
+            # estrutura do parser — ruido pro cliente.
+            self._send_json({"ok": False, "error": "JSON invalido"}, status=400)
             return
         # Body precisa ser objeto JSON. Lista/string/numero quebrariam o
         # `(payload or {}).get(...)` dos handlers com AttributeError -> 500 cru.
@@ -1836,10 +1964,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Aceita {action: "next|prev|goto|reset", guid: "...", index: N}
             action = (payload or {}).get("action", "").lower()
             guid = (payload or {}).get("guid", "").strip().lower()
-            if guid and guid not in PALESTRANTES:
+            info = _palestrante_info(guid)
+            if guid and info is None:
                 self._send_json({"ok": False, "error": "guid nao configurado"}, status=400)
                 return
-            info = PALESTRANTES.get(guid)
             tipo = info[3] if info else "photos"
             total = len(info[2]) if info else 0
 
@@ -2034,14 +2162,25 @@ class ProjetorManager:
 
     def abrir(self, monitor: dict, url: str) -> int | None:
         """Lanca browser em modo kiosk no monitor indicado. Retorna pid."""
+        self.gc()  # limpa projetores ja mortos antes de abrir outro
         browser = _achar_browser_kiosk()
         if not browser:
             raise RuntimeError("Chrome nem Edge encontrado — instale um deles")
 
         # Um diretorio de usuario temporario por instancia evita reutilizar
         # sessao do Chrome normal e garante que a flag --app funcione fresh.
-        user_data = os.path.join(os.environ.get("TEMP", "."),
+        # tempfile.gettempdir() em vez de %TEMP% (que pode estar vazio); se nao
+        # der pra criar, cai pra uma pasta ao lado do app (sempre gravavel).
+        user_data = os.path.join(tempfile.gettempdir(),
                                   f"apresentador_kiosk_{monitor['indice']}")
+        try:
+            os.makedirs(user_data, exist_ok=True)
+        except OSError:
+            user_data = str(APP_DIR / "_kiosk_cache" / f"m{monitor['indice']}")
+            try:
+                os.makedirs(user_data, exist_ok=True)
+            except OSError as e:
+                raise RuntimeError(f"falha criando pasta do projetor: {e}") from e
         args = [
             browser,
             "--new-window",
@@ -2053,12 +2192,15 @@ class ProjetorManager:
             "--no-default-browser-check",
             f"--user-data-dir={user_data}",
         ]
-        proc = subprocess.Popen(
-            args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=0x08000000 if sys.platform == "win32" else 0,  # CREATE_NO_WINDOW
-        )
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=0x08000000 if sys.platform == "win32" else 0,  # CREATE_NO_WINDOW
+            )
+        except OSError as e:
+            raise RuntimeError(f"falha ao abrir o browser: {e}") from e
         with self._lock:
             self._abertos[proc.pid] = {
                 "proc": proc,
@@ -2219,7 +2361,7 @@ class ConfigWatcher:
                         novo = carregar_config()
                         CFG = novo
                         VMIX_HOST = CFG.get("vmix", {}).get("host", "localhost")
-                        VMIX_PORT = int(CFG.get("vmix", {}).get("port", 8088))
+                        VMIX_PORT = _safe_int(CFG.get("vmix", {}).get("port", 8088), 8088)
                         PALESTRANTES = carregar_palestrantes(CFG)
                     self.mudancas_detectadas += 1
                 except Exception as e:

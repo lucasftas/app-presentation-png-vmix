@@ -1,5 +1,28 @@
 # Implementations
 
+## v1.2.0 — 2026-06-03
+
+**Resumo:** Causa-raiz do crash em produção ("não conseguiu fazer algo em /temp") identificada e eliminada: o build `--onefile` extraía ~95 MB (incl. ffmpeg/ffprobe) pra `%TEMP%\_MEIxxxx` a cada boot, e antivírus/permissão/disco nesse temp derrubavam o app. Migração pra `--onedir` + instalador Inno Setup, mais a correção de 50 achados confirmados de uma auditoria adversarial multi-agente (8 dimensões, verificação por refutação de cada achado).
+
+**Migração de empacotamento (Bloco A):**
+- `scripts\build.bat`: `--onefile` → `--onedir`. Saída vira a pasta `dist\Iniciar Apresentador\` (exe + `_internal\` com dll/ffmpeg/HTML/ícones). `_internal\` carrega em runtime sem extrair nada em `%TEMP%`.
+- `server.py`: `_asset_path` e `_achar_ffmpeg_bin` ganharam `Path(sys.executable).parent / "_internal"` na cascata de busca (fallback defensivo, independe de `sys._MEIPASS` no `--onedir`). `tray.py._icon_path` idem.
+- `installer\apresentador.iss` (Inno Setup): instala em `%LocalAppData%\Apresentador vMix` com `PrivilegesRequired=lowest` (sem admin → pasta gravável → `config.json`/`logs\` funcionam ao lado do exe). Atalhos Menu Iniciar + Desktop; task opcional de exclusão no Defender (elevada via `Start-Process -Verb RunAs`).
+- `installer\build-installer.bat`: roda o build e acha o `ISCC.exe` (`%ProgramFiles(x86)%`, `%ProgramFiles%` ou `%LocalAppData%\Programs`).
+- Chrome kiosk: `tempfile.gettempdir()` + fallback `APP_DIR\_kiosk_cache`.
+
+**Blindagem anti-crash/DoS (Bloco B):** timeout UNC em `rescan_pasta`/`/list-img`/`/list-thumb` (`_is_file_timeout` via `_LS_EXECUTOR`); `_safe_int` no boot/`salvar_config`/`ConfigWatcher`; `MAX_BODY_BYTES`→413; sniff de conteúdo + `ET.ParseError`→`ValueError` em `fetch_vmix_xml`; `resolve()` captura `OSError`/`RuntimeError`; `Popen` captura `OSError`; `finally` no `_thumbs_worker`; `gc()` no abrir/fechar projetor.
+
+**Races de estado global (Bloco C):** `_cfg_lock` → `RLock`; `_palestrantes_snapshot`/`_palestrante_info`/`_vmix_target` lendo sob lock; `compute_state` opera sobre um snapshot único; `_preview_palestrante` recebe `palestrantes` por parâmetro; `rescan_pasta` faz double-check `if g in PALESTRANTES`; `get_ui_prefs` sob lock; `_CLIENTES` com poda.
+
+**Robustez HTTP + tray (Bloco D):** `BrokenPipe` em `_send_json`/`vmix_xml`; erro de JSON genérico; clipboard Win32 (sem `Tk().mainloop()`); `monitor.stop()` no shutdown; log do firewall.
+
+**Docs (Bloco E):** CLAUDE.md/README/requirements corrigidos (stdlib pura → tray usa pystray/Pillow; `--onefile ~8 MB` → `--onedir ~95 MB`; `--noconsole`; timeouts).
+
+**Testes:** `tests\test_robustez_v1_2.py` — 16 testes novos (`_safe_int`, ParseError/sniff, `_is_file_timeout`, snapshot, rescan double-check, Content-Length 413 via socket real). Suíte: **155 verdes** (139 + 16).
+
+**Validação:** build `--onedir` OK (assets em `_internal\`); smoke do exe: `GET /` 200 servido de `_internal\`, `ui_prefs` 200, `/state` trata vMix-offline sem crash; **zero `_MEI` em `%TEMP%`** (delta 0); instalador compilado → `Apresentador vMix Setup.exe` (~70 MB).
+
 ## v1.1.2 — 2026-05-16
 
 **Resumo:** Auditoria de robustez pré-evento — 3 revisões de código independentes (server, tray/build, frontend). Conserta um bug que impedia configurar uma instalação nova e blinda o app contra falhas durante uso ao vivo.
