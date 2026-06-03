@@ -12,7 +12,7 @@
 
 #define AppName "Apresentador vMix"
 #define AppExe "Iniciar Apresentador.exe"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define SrcDir "..\dist\Iniciar Apresentador"
 
 [Setup]
@@ -48,11 +48,16 @@ Source: "{#SrcDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs 
 ; Helper pra liberar no Defender manualmente depois, se o usuario quiser.
 Source: "Liberar no Defender.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LEIA-ME.txt"; DestDir: "{app}"; Flags: ignoreversion isreadme
+; Atalho-semente do Painel (Dashboard /admin). O app reescreve este .url no
+; boot com o porto real (5000-5009). Caminho de controle independente do tray.
+Source: "Painel do Apresentador.url"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
+Name: "{group}\Painel do Apresentador"; Filename: "{app}\Painel do Apresentador.url"; Comment: "Abre o painel de controle (Dashboard) no navegador"
 Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{autodesktop}\Painel do Apresentador"; Filename: "{app}\Painel do Apresentador.url"; Tasks: desktopicon
 
 [Run]
 ; Exclusao no Defender (so se o usuario marcou a task): roda o .bat elevado

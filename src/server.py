@@ -2408,6 +2408,58 @@ def _shutdown_server() -> None:
 
 _single_instance: "SingleInstance | None" = None
 
+PAINEL_URL_NAME = "Painel do Apresentador.url"
+
+
+def _matar_outras_instancias() -> None:
+    """Mata outras instancias do MESMO exe pra assumir o lugar (takeover).
+
+    Usado no relaunch quando o mutex single-instance esta preso — cenario
+    tipico de 'app rodando mas SEM icone na bandeja' (o tray falhou na init e
+    o app ficou headless segurando o mutex). Reabrir o atalho passa a recuperar.
+
+    So roda no exe (frozen) no Windows. Em dev (`python server.py`) NAO faz nada
+    — matar `python.exe` por nome derrubaria outros scripts.
+    """
+    if not getattr(sys, "frozen", False) or sys.platform != "win32":
+        return
+    exe = os.path.basename(sys.executable)  # "Iniciar Apresentador.exe"
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/IM", exe, "/FI", f"PID ne {os.getpid()}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning("takeover: taskkill falhou: %s", e)
+
+
+def _escrever_painel_url(porta: int) -> None:
+    """(Re)grava o atalho .url do Painel (Dashboard /admin) com o porto REAL.
+
+    O instalador cria um atalho 'Painel do Apresentador' apontando pra este
+    arquivo; mante-lo no porto vivo (5000-5009) garante ao operador um caminho
+    de controle independente do icone da bandeja — se o tray sumir, o Dashboard
+    continua a um clique de distancia. Atualizado a cada boot.
+    """
+    try:
+        conteudo = ("[InternetShortcut]\r\n"
+                    f"URL=http://localhost:{porta}/admin\r\n")
+        if getattr(sys, "frozen", False):
+            conteudo += f"IconFile={sys.executable}\r\nIconIndex=0\r\n"
+        (APP_DIR / PAINEL_URL_NAME).write_text(conteudo, encoding="ascii")
+    except OSError as e:
+        logger.warning("nao consegui gravar %s: %s", PAINEL_URL_NAME, e)
+
+
+def _abrir_dashboard(porta: int) -> None:
+    """Abre o Dashboard /admin no navegador padrao (fallback quando o tray falha)."""
+    try:
+        webbrowser.open(f"http://localhost:{porta}/admin")
+    except Exception as e:
+        logger.warning("nao consegui abrir o Dashboard: %s", e)
+
 
 def main() -> None:
     setup_logging(verbose=True)
@@ -2416,23 +2468,45 @@ def main() -> None:
     global _single_instance
     _single_instance = aquirir_single_instance()
     if not _single_instance.adquirido:
-        print("=" * 68)
-        print("  Apresentador vMix ja esta rodando.")
-        print("  Procure o icone na bandeja do Windows (perto do relogio).")
-        print("  Se nao aparecer, mate o processo no Gerenciador de Tarefas.")
-        print("=" * 68)
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                0,
-                "O Apresentador vMix já está rodando.\n\n"
-                "Procure o ícone na bandeja do Windows (perto do relógio).",
-                "Apresentador vMix",
-                0x40,  # MB_ICONINFORMATION
-            )
-        except Exception:
-            pass
-        return
+        # App ja rodando. Pode estar SEM icone na bandeja (o tray falhou na init
+        # e o app ficou headless segurando o mutex). Relaunch = TAKEOVER: mata a
+        # instancia antiga e assume. So no exe (frozen); em dev nao mata nada.
+        # Critico: soltar nosso PROPRIO handle do mutex antes de re-adquirir —
+        # o CreateMutexW da tentativa que falhou tambem abriu um handle, e o
+        # mutex so e destruido quando o refcount zera (todos os handles fechados).
+        _single_instance.release()
+        assumiu = False
+        if getattr(sys, "frozen", False) and sys.platform == "win32":
+            logger.warning("Outra instancia detectada — encerrando-a e assumindo (takeover)")
+            _matar_outras_instancias()
+            deadline = time.time() + 6.0
+            while time.time() < deadline:
+                time.sleep(0.15)
+                cand = aquirir_single_instance()
+                if cand.adquirido:
+                    _single_instance = cand
+                    assumiu = True
+                    break
+                cand.release()  # solta antes da proxima tentativa (refcount)
+        if not assumiu:
+            # Dev mode, ou nao consegui assumir — comportamento antigo.
+            print("=" * 68)
+            print("  Apresentador vMix ja esta rodando.")
+            print("  Procure o icone na bandeja do Windows (perto do relogio).")
+            print("  Se nao aparecer, mate o processo no Gerenciador de Tarefas.")
+            print("=" * 68)
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "O Apresentador vMix já está rodando.\n\n"
+                    "Procure o ícone na bandeja do Windows (perto do relógio).",
+                    "Apresentador vMix",
+                    0x40,  # MB_ICONINFORMATION
+                )
+            except Exception:
+                pass
+            return
 
     global _server_ref, SERVER_PORT
 
@@ -2460,6 +2534,10 @@ def main() -> None:
         logger.warning("Porta %s ocupada — usando %s", SERVER_PORT, porta_real)
         SERVER_PORT = porta_real
     _server_ref = srv
+
+    # Mantem o atalho 'Painel do Apresentador' (Dashboard /admin) apontando pro
+    # porto real — caminho de controle que nao depende do icone da bandeja.
+    _escrever_painel_url(SERVER_PORT)
 
     ip_lan = _ip_lan()
     print("=" * 68)
@@ -2517,7 +2595,11 @@ def main() -> None:
             print("\nEncerrando.")
             _shutdown_server()
     except Exception as e:
-        logger.error("tray falhou: %s — rodando sem tray", e)
+        # Tray falhou de vez (sem icone na bandeja). Em vez de rodar cego, abre o
+        # Dashboard /admin no navegador — o operador mantem controle total.
+        logger.error("tray falhou: %s — abrindo o Dashboard como fallback", e)
+        if getattr(sys, "frozen", False):
+            _abrir_dashboard(SERVER_PORT)
         try:
             server_thread.join()
         except KeyboardInterrupt:

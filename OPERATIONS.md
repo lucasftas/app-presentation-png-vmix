@@ -1,5 +1,16 @@
 # Operations Log
 
+## 2026-06-03 — relaunch-takeover + Painel fallback sem tray (v1.3.0)
+
+- [x] Diagnóstico do cenário "app roda mas não aparece na bandeja" — beco sem saída no relaunch
+- [x] Pesquisa: pystray já trata `WM_TASKBARCREATED` (ícone volta sozinho no restart do Explorer) → watchdog descartado
+- [x] Relaunch-takeover (`server.py`): `_matar_outras_instancias` (frozen-only) + solta o próprio handle do mutex + re-adquire
+- [x] Painel `.url` no porto real a cada boot (`_escrever_painel_url`) + auto-abrir Dashboard quando o tray falha (`_abrir_dashboard`)
+- [x] Instalador: atalho "Painel do Apresentador" (Menu Iniciar + Desktop) + bump 1.3.0
+- [x] 6 testes novos (`test_takeover_painel`); suíte 161 verdes
+- [x] Build + smoke (Painel .url no porto real, /admin 200, **takeover ao vivo** validado, zero `_MEI`) + instalador compilado
+- [x] Release v1.3.0 (via /voudormir, autônomo)
+
 ## 2026-06-03 — investigação do crash em /temp + migração --onedir + auditoria (v1.2.0)
 
 - [x] Investigação profunda do crash relatado ("não conseguiu fazer algo em /temp") — causa-raiz: `--onefile` extraindo ~95 MB pra `%TEMP%\_MEIxxxx` a cada boot

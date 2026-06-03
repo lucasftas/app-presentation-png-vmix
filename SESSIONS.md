@@ -1,5 +1,43 @@
 # Sessions
 
+## 2026-06-03 — "Roda mas sem ícone": relaunch-takeover + Painel fallback (v1.3.0, via /voudormir)
+
+### Contexto
+Após o v1.2.0, o usuário perguntou como o app lida quando já está em execução mas **não
+aparece na bandeja** — e pediu um "matar o antigo e subir o novo" ágil. Depois pediu também
+uma **alternativa de controle além do ícone do tray**. Rodado via `/voudormir` (front-load das
+aprovações, execução autônoma, release no fim) pra deixar pronto pro deploy do dia seguinte.
+
+### Desafios e soluções
+- **Por que o ícone some**: investiguei o pystray instalado — ele **já trata `WM_TASKBARCREATED`**
+  (`_on_taskbarcreated` → `_show()`, com opt-in via `ChangeWindowMessageFilterEx`). Ou seja, no
+  restart do Explorer o ícone volta sozinho. O watchdog que o usuário tinha pedido seria
+  redundante — reportei e ele topou pular. O caso real de "sem ícone" é o **tray falhar na init**
+  (cai no `except` do `main()` → headless segurando o mutex).
+- **Takeover e o refcount do mutex**: o pulo do gato — quando `aquirir_single_instance` falha,
+  o `CreateMutexW` daquela tentativa **também abre um handle**. O mutex só é destruído quando o
+  refcount zera. Então, mesmo matando o processo antigo, se eu não soltar o **meu próprio**
+  handle antes de re-adquirir, o `CreateMutexW` seguinte ainda vê `ERROR_ALREADY_EXISTS`.
+  Solução: `_single_instance.release()` antes do loop de re-aquisição, e `cand.release()` em
+  cada tentativa falha.
+- **Não matar `python.exe` em dev**: `_matar_outras_instancias` é gated em `sys.frozen` +
+  `win32` — `taskkill /F /IM "Iniciar Apresentador.exe"` só no exe. Em dev é no-op (teste cobre).
+- **Alternativa ao tray = o Dashboard que já existe**: o `/admin` já é um painel completo. Em
+  vez de criar UI nova, o instalador cria um atalho "Painel do Apresentador" (Menu Iniciar +
+  Desktop) apontando pra um `.url`, e o app **reescreve esse `.url` com o porto real** (5000-5009)
+  a cada boot — então o atalho nunca aponta pro porto errado mesmo com o fallback de porta. E
+  quando o tray falha, o app **auto-abre o Dashboard**.
+- **Takeover validado ao vivo**: smoke lançou a instância A (PID X, /admin 200), depois a B —
+  que detectou o mutex, matou A e assumiu; sobrou 1 processo respondendo. Confirmou também que
+  o fix de `%TEMP%` do v1.2.0 segue (zero `_MEI`).
+
+### Decisões tomadas
+- Watchdog de re-registro de ícone: **descartado** (pystray já faz).
+- Alternativa ao tray: **atalho pro Dashboard + auto-open no fail** (não janela nativa, não hotkey).
+- Versão **v1.3.0** (minor). Release autônoma no fim do `/voudormir` (pré-aprovada).
+- Limitação aceita: janelas Chrome kiosk de projetores da instância morta podem ficar órfãs no
+  takeover (sem sweep agressivo de chrome nesta entrega) — operador fecha.
+
 ## 2026-06-03 — Crash em /temp: migração --onedir + instalador + auditoria de 50 achados (v1.2.0)
 
 ### Contexto

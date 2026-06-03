@@ -1,5 +1,22 @@
 # Implementations
 
+## v1.3.0 — 2026-06-03
+
+**Resumo:** resolve o cenário "app roda mas não aparece no relógio (bandeja)" — recuperação ágil no relaunch + um caminho de controle que não depende do tray.
+
+**Pesquisa-chave:** o pystray **já trata `WM_TASKBARCREATED`** (`_win32.py:_on_taskbarcreated` → `_show()` + opt-in `ChangeWindowMessageFilterEx`), ou seja, quando o Explorer reinicia o ícone volta sozinho. Logo um watchdog de re-registro seria redundante → **não implementado**. O caso real de "roda sem ícone" é o **tray falhar de vez na init** (cai no `except` do `main()` → headless segurando o mutex).
+
+**Relaunch-takeover (`server.py`):** helper `_matar_outras_instancias()` — só no exe (frozen) no Windows, `taskkill /F /IM <exe> /FI "PID ne <self>"`; em dev (`python server.py`) é no-op (matar `python.exe` por nome é perigoso). Em `main()`, com o mutex preso: **solta o próprio handle** do mutex (senão o refcount nunca zera e o re-`CreateMutexW` ainda vê preso), mata a instância antiga e re-adquire em loop (~6 s). Só cai no MessageBox antigo se não assumir (dev / kill falhou).
+
+**Fallback de controle sem tray (`server.py` + `installer`):**
+- `_escrever_painel_url(porta)` (re)grava `APP_DIR\Painel do Apresentador.url` (`[InternetShortcut]` → `http://localhost:<porta_real>/admin` + IconFile=exe) a cada boot, mantendo o atalho no porto vivo.
+- `_abrir_dashboard(porta)` — nos `except` de tray do `main()`, abre o Dashboard no navegador (headless deixa de ser cego).
+- `installer\apresentador.iss`: semente `Painel do Apresentador.url` + atalhos "Painel do Apresentador" no Menu Iniciar e Desktop.
+
+**Testes:** `tests\test_takeover_painel.py` — 6 novos (takeover é no-op em dev; chama taskkill excluindo self em frozen; `.url` grava o porto real; `_abrir_dashboard` não propaga exceção). Suíte: **161 verdes** (155 + 6).
+
+**Validação:** build `--onedir`; smoke do exe confirmou `Painel do Apresentador.url` escrito com o porto real, `GET /admin` 200, e **takeover ao vivo** (instância B encerrou a A e assumiu — sobrou 1 processo respondendo, zero `_MEI` em `%TEMP%`); instalador compilado (`Apresentador vMix Setup.exe` ~70 MB) com os atalhos do Painel.
+
 ## v1.2.0 — 2026-06-03
 
 **Resumo:** Causa-raiz do crash em produção ("não conseguiu fazer algo em /temp") identificada e eliminada: o build `--onefile` extraía ~95 MB (incl. ffmpeg/ffprobe) pra `%TEMP%\_MEIxxxx` a cada boot, e antivírus/permissão/disco nesse temp derrubavam o app. Migração pra `--onedir` + instalador Inno Setup, mais a correção de 50 achados confirmados de uma auditoria adversarial multi-agente (8 dimensões, verificação por refutação de cada achado).

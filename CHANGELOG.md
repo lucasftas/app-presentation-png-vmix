@@ -3,6 +3,20 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento segue [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-06-03
+
+Recuperação quando o app roda mas **não aparece na bandeja** + caminho de controle independente do ícone do tray.
+
+### Added
+- **Atalho "Painel do Apresentador"** (Menu Iniciar + Área de Trabalho) — abre o Dashboard `/admin` no navegador. É um painel de controle completo (palestrantes, avançar/voltar/reset, projetores, saúde) que **não depende do ícone da bandeja**. O app reescreve o `.url` apontando pro porto real (5000-5009) a cada boot.
+- **Fallback automático do Dashboard** — se o tray falhar na inicialização (cenário "roda sem ícone"), o app abre o Dashboard no navegador em vez de rodar cego.
+
+### Changed
+- **Relaunch-takeover** — reabrir o atalho com uma instância já rodando (inclusive quando ela está sem ícone na bandeja) agora **encerra a instância antiga e sobe uma nova** (`taskkill` do próprio exe, exclui a si; só no exe instalado — em dev não mata nada). Antes só mostrava "já está rodando" e saía, deixando o operador sem saída a não ser o Gerenciador de Tarefas. Soltar o próprio handle do mutex antes de re-adquirir garante o takeover.
+
+### Notes
+- O re-registro do ícone quando o **Explorer reinicia** já é tratado pelo próprio pystray (`WM_TASKBARCREATED` → re-add) — nenhum watchdog extra foi adicionado.
+
 ## [1.2.0] — 2026-06-03
 
 Migração de empacotamento que mata o crash em `%TEMP%`, mais blindagem anti-crash/DoS de uma auditoria multi-agente (82 achados → 50 confirmados adversarialmente).

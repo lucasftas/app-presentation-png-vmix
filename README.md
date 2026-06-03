@@ -68,6 +68,8 @@ Este app preenche essa lacuna:
 
 - **Port fallback** — se 5000 estiver ocupada, tenta 5001, 5002...
 - **Single-instance guard** — duplo duplo-clique não abre 2 cópias conflitantes
+- **Relaunch-takeover** — se o app travou sem ícone na bandeja, reabrir o atalho encerra a instância presa e sobe uma nova
+- **Painel sem tray** — atalho "Painel do Apresentador" (Menu Iniciar/Desktop) abre o Dashboard; e se o tray falhar, o app abre o Dashboard sozinho
 - **Health check interno** — detecta se o próprio servidor HTTP morreu e notifica
 - **Recovery de config corrompido** — backup automático, app sobe sempre
 - **Timeout em share de rede (UNC) lento** — share caído não trava o dashboard
@@ -92,6 +94,7 @@ Ou veja [todas as releases](https://github.com/lucasftas/app-presentation-png-vm
 - Ícone aparece na **bandeja do Windows** perto do relógio
 - Sem janela preta, sem poluição visual
 - Single-instance: não rola abrir 2 cópias por engano
+- Sumiu o ícone? **Reabra o atalho** — ele encerra a instância presa e sobe de novo. Ou use o atalho **"Painel do Apresentador"** (abre o Dashboard direto, sem depender da bandeja)
 
 ### 3. Clique no ícone → Dashboard abre no browser
 
