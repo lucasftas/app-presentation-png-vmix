@@ -172,7 +172,7 @@
 
 ## 2026-05-16 — deploy no PC do evento + auditoria de robustez (v1.1.1 / v1.1.2)
 
-- [x] Deploy do exe no PC do evento (`vmix`, 192.168.X.X) via SSH; usuário relatou "sem ícone na bandeja"
+- [x] Deploy do exe no PC do evento (`PC-do-evento`, 192.168.X.X) via SSH; usuário relatou "sem ícone na bandeja"
 - [x] Diagnóstico via SSH: app rodava, mas log mostrava `tray falhou: icon.ico nao encontrado`
 - [x] **v1.1.1** — `tray.py._icon_path` passou a procurar em `sys._MEIPASS` (icon embutido no exe); `icon_alert.ico` embutido no build
 - [x] Liberada a porta 5000 no firewall do PC do evento (`netsh advfirewall`) via SSH
